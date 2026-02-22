@@ -13,7 +13,7 @@ type templateSpec struct {
 
 func (e *Engine) generateGoMonolith(tree *FileTree, req GenerateRequest) error {
 	module := resolveGoModule(req.Root, "stacksprint/generated")
-	specs := goMonolithTemplateSpecs(req.Architecture)
+	specs := goMonolithTemplateSpecs(req)
 	data := map[string]any{
 		"Framework":    req.Framework,
 		"Architecture": req.Architecture,
@@ -49,7 +49,7 @@ func (e *Engine) generateGoMonolith(tree *FileTree, req GenerateRequest) error {
 
 func (e *Engine) generateGoService(tree *FileTree, req GenerateRequest, svcRoot string, svc ServiceConfig) error {
 	module := fmt.Sprintf("stacksprint/%s", svc.Name)
-	specs := goMicroserviceTemplateSpecs()
+	specs := goMicroserviceTemplateSpecs(req)
 	data := map[string]any{
 		"Framework":    req.Framework,
 		"Architecture": req.Architecture,
@@ -83,24 +83,45 @@ func (e *Engine) renderSpecs(tree *FileTree, specs []templateSpec, data map[stri
 	return nil
 }
 
-func goMonolithTemplateSpecs(arch string) []templateSpec {
-	switch arch {
+func goMonolithTemplateSpecs(req GenerateRequest) []templateSpec {
+	withCRUD := isEnabled(req.FileToggles.ExampleCRUD)
+	switch req.Architecture {
 	case "clean":
-		return []templateSpec{
+		base := []templateSpec{
 			{Template: "go/clean/cmd/server/main.tmpl", Output: "cmd/server/main.go"},
-			{Template: "go/clean/internal/domain/item.tmpl", Output: "internal/domain/item.go"},
-			{Template: "go/clean/internal/usecase/item_usecase.tmpl", Output: "internal/usecase/item_usecase.go"},
-			{Template: "go/clean/internal/delivery/http/item_handler.tmpl", Output: "internal/delivery/http/item_handler.go"},
-			{Template: "go/clean/internal/repository/item_repository.tmpl", Output: "internal/repository/item_repository.go"},
 		}
+		if withCRUD {
+			return append(base, []templateSpec{
+				{Template: "go/clean/internal/domain/item.tmpl", Output: "internal/domain/item.go"},
+				{Template: "go/clean/internal/usecase/item_usecase.tmpl", Output: "internal/usecase/item_usecase.go"},
+				{Template: "go/clean/internal/delivery/http/item_handler.tmpl", Output: "internal/delivery/http/item_handler.go"},
+				{Template: "go/clean/internal/repository/item_repository.tmpl", Output: "internal/repository/item_repository.go"},
+			}...)
+		}
+		return append(base, []templateSpec{
+			{Template: "go/clean/internal/domain/ping.tmpl", Output: "internal/domain/ping.go"},
+			{Template: "go/clean/internal/usecase/ping_usecase.tmpl", Output: "internal/usecase/ping_usecase.go"},
+			{Template: "go/clean/internal/delivery/http/ping_handler.tmpl", Output: "internal/delivery/http/ping_handler.go"},
+			{Template: "go/clean/internal/repository/ping_repository.tmpl", Output: "internal/repository/ping_repository.go"},
+		}...)
 	case "hexagonal":
-		return []templateSpec{
+		base := []templateSpec{
 			{Template: "go/hexagonal/cmd/server/main.tmpl", Output: "cmd/server/main.go"},
-			{Template: "go/hexagonal/core/ports/item_repository.tmpl", Output: "core/ports/item_repository.go"},
-			{Template: "go/hexagonal/core/services/item_service.tmpl", Output: "core/services/item_service.go"},
-			{Template: "go/hexagonal/adapters/primary/http/item_handler.tmpl", Output: "adapters/primary/http/item_handler.go"},
-			{Template: "go/hexagonal/adapters/secondary/database/item_repository.tmpl", Output: "adapters/secondary/database/item_repository.go"},
 		}
+		if withCRUD {
+			return append(base, []templateSpec{
+				{Template: "go/hexagonal/core/ports/item_repository.tmpl", Output: "core/ports/item_repository.go"},
+				{Template: "go/hexagonal/core/services/item_service.tmpl", Output: "core/services/item_service.go"},
+				{Template: "go/hexagonal/adapters/primary/http/item_handler.tmpl", Output: "adapters/primary/http/item_handler.go"},
+				{Template: "go/hexagonal/adapters/secondary/database/item_repository.tmpl", Output: "adapters/secondary/database/item_repository.go"},
+			}...)
+		}
+		return append(base, []templateSpec{
+			{Template: "go/hexagonal/core/ports/ping_port.tmpl", Output: "core/ports/ping_port.go"},
+			{Template: "go/hexagonal/core/services/ping_service.tmpl", Output: "core/services/ping_service.go"},
+			{Template: "go/hexagonal/adapters/primary/http/ping_handler.tmpl", Output: "adapters/primary/http/ping_handler.go"},
+			{Template: "go/hexagonal/adapters/secondary/database/ping_repository.tmpl", Output: "adapters/secondary/database/ping_repository.go"},
+		}...)
 	case "modular-monolith":
 		return []templateSpec{
 			{Template: "go/modular/cmd/server/main.tmpl", Output: "cmd/server/main.go"},
@@ -108,18 +129,28 @@ func goMonolithTemplateSpecs(arch string) []templateSpec {
 			{Template: "go/modular/internal/modules/catalog/http.tmpl", Output: "internal/modules/catalog/http.go"},
 		}
 	default:
-		return []templateSpec{
+		base := []templateSpec{
 			{Template: "go/mvp/cmd/server/main.tmpl", Output: "cmd/server/main.go"},
-			{Template: "go/mvp/internal/handlers/item_handler.tmpl", Output: "internal/handlers/item_handler.go"},
 		}
+		if withCRUD {
+			return append(base, []templateSpec{
+				{Template: "go/mvp/internal/handlers/item_handler.tmpl", Output: "internal/handlers/item_handler.go"},
+			}...)
+		}
+		return append(base, templateSpec{Template: "go/mvp/internal/handlers/ping_handler.tmpl", Output: "internal/handlers/ping_handler.go"})
 	}
 }
 
-func goMicroserviceTemplateSpecs() []templateSpec {
-	return []templateSpec{
+func goMicroserviceTemplateSpecs(req GenerateRequest) []templateSpec {
+	base := []templateSpec{
 		{Template: "go/microservice/cmd/server/main.tmpl", Output: "cmd/server/main.go"},
-		{Template: "go/microservice/internal/handlers/item_handler.tmpl", Output: "internal/handlers/item_handler.go"},
 	}
+	if isEnabled(req.FileToggles.ExampleCRUD) {
+		return append(base, []templateSpec{
+			{Template: "go/microservice/internal/handlers/item_handler.tmpl", Output: "internal/handlers/item_handler.go"},
+		}...)
+	}
+	return append(base, templateSpec{Template: "go/microservice/internal/handlers/ping_handler.tmpl", Output: "internal/handlers/ping_handler.go"})
 }
 
 func isSQLDB(db string) bool {

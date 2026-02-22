@@ -6,7 +6,7 @@ import (
 )
 
 func (e *Engine) generatePythonMonolith(tree *FileTree, req GenerateRequest) error {
-	specs := pythonMonolithTemplateSpecs(req.Architecture)
+	specs := pythonMonolithTemplateSpecs(req)
 	data := map[string]any{
 		"Framework":    req.Framework,
 		"Architecture": req.Architecture,
@@ -38,7 +38,7 @@ func (e *Engine) generatePythonMonolith(tree *FileTree, req GenerateRequest) err
 }
 
 func (e *Engine) generatePythonService(tree *FileTree, req GenerateRequest, svcRoot string, svc ServiceConfig) error {
-	specs := pythonMicroserviceTemplateSpecs()
+	specs := pythonMicroserviceTemplateSpecs(req)
 	data := map[string]any{
 		"Framework":    req.Framework,
 		"Architecture": req.Architecture,
@@ -66,30 +66,51 @@ func (e *Engine) generatePythonService(tree *FileTree, req GenerateRequest, svcR
 	return nil
 }
 
-func pythonMonolithTemplateSpecs(arch string) []templateSpec {
-	switch arch {
+func pythonMonolithTemplateSpecs(req GenerateRequest) []templateSpec {
+	withCRUD := isEnabled(req.FileToggles.ExampleCRUD)
+	switch req.Architecture {
 	case "clean":
-		return []templateSpec{
+		base := []templateSpec{
 			{Template: "python/clean/main.tmpl", Output: "app/main.py"},
-			{Template: "python/clean/app/domain/item.tmpl", Output: "app/domain/item.py"},
-			{Template: "python/clean/app/usecases/list_items.tmpl", Output: "app/usecases/list_items.py"},
-			{Template: "python/clean/app/delivery/http/item_controller.tmpl", Output: "app/delivery/http/item_controller.py"},
-			{Template: "python/clean/app/repository/item_repository.tmpl", Output: "app/repository/item_repository.py"},
 		}
+		if withCRUD {
+			return append(base, []templateSpec{
+				{Template: "python/clean/app/domain/item.tmpl", Output: "app/domain/item.py"},
+				{Template: "python/clean/app/usecases/list_items.tmpl", Output: "app/usecases/list_items.py"},
+				{Template: "python/clean/app/delivery/http/item_controller.tmpl", Output: "app/delivery/http/item_controller.py"},
+				{Template: "python/clean/app/repository/item_repository.tmpl", Output: "app/repository/item_repository.py"},
+			}...)
+		}
+		return append(base, []templateSpec{
+			{Template: "python/clean/app/domain/ping.tmpl", Output: "app/domain/ping.py"},
+			{Template: "python/clean/app/usecases/ping_usecase.tmpl", Output: "app/usecases/ping_usecase.py"},
+			{Template: "python/clean/app/delivery/http/ping_controller.tmpl", Output: "app/delivery/http/ping_controller.py"},
+			{Template: "python/clean/app/repository/ping_repository.tmpl", Output: "app/repository/ping_repository.py"},
+		}...)
 	case "hexagonal":
-		return []templateSpec{
+		base := []templateSpec{
 			{Template: "python/hexagonal/main.tmpl", Output: "app/main.py"},
-			{Template: "python/hexagonal/app/core/ports/item_repository_port.tmpl", Output: "app/core/ports/item_repository_port.py"},
-			{Template: "python/hexagonal/app/core/services/item_service.tmpl", Output: "app/core/services/item_service.py"},
-			{Template: "python/hexagonal/app/adapters/primary/http/item_controller.tmpl", Output: "app/adapters/primary/http/item_controller.py"},
-			{Template: "python/hexagonal/app/adapters/secondary/database/item_repository_adapter.tmpl", Output: "app/adapters/secondary/database/item_repository_adapter.py"},
 		}
+		if withCRUD {
+			return append(base, []templateSpec{
+				{Template: "python/hexagonal/app/core/ports/item_repository_port.tmpl", Output: "app/core/ports/item_repository_port.py"},
+				{Template: "python/hexagonal/app/core/services/item_service.tmpl", Output: "app/core/services/item_service.py"},
+				{Template: "python/hexagonal/app/adapters/primary/http/item_controller.tmpl", Output: "app/adapters/primary/http/item_controller.py"},
+				{Template: "python/hexagonal/app/adapters/secondary/database/item_repository_adapter.tmpl", Output: "app/adapters/secondary/database/item_repository_adapter.py"},
+			}...)
+		}
+		return append(base, []templateSpec{
+			{Template: "python/hexagonal/app/core/ports/ping_port.tmpl", Output: "app/core/ports/ping_port.py"},
+			{Template: "python/hexagonal/app/core/services/ping_service.tmpl", Output: "app/core/services/ping_service.py"},
+			{Template: "python/hexagonal/app/adapters/primary/http/ping_controller.tmpl", Output: "app/adapters/primary/http/ping_controller.py"},
+			{Template: "python/hexagonal/app/adapters/secondary/database/ping_adapter.tmpl", Output: "app/adapters/secondary/database/ping_adapter.py"},
+		}...)
 	default:
-		return []templateSpec{{Template: fmt.Sprintf("python/%s/main.tmpl", archTemplateName(arch)), Output: "app/main.py"}}
+		return []templateSpec{{Template: fmt.Sprintf("python/%s/main.tmpl", archTemplateName(req.Architecture)), Output: "app/main.py"}}
 	}
 }
 
-func pythonMicroserviceTemplateSpecs() []templateSpec {
+func pythonMicroserviceTemplateSpecs(_ GenerateRequest) []templateSpec {
 	return []templateSpec{{Template: "python/microservice/main.tmpl", Output: "app/main.py"}}
 }
 
@@ -113,6 +134,7 @@ func addPythonDBBoilerplate(tree *FileTree, req GenerateRequest, root string) {
 			driver = "mysql+pymysql"
 		}
 		addFile(tree, prefix+"app/repository/sqlalchemy_session.py", fmt.Sprintf("import os\nfrom sqlalchemy import create_engine\nfrom sqlalchemy.orm import sessionmaker\n\nDATABASE_URL = os.getenv('DATABASE_URL', '%s://app:app@localhost/app')\nengine = create_engine(DATABASE_URL, pool_pre_ping=True)\nSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)\n", driver))
+		addFile(tree, prefix+"app/repository/models.py", renderSQLAlchemyModels(req.Custom.Models))
 		return
 	}
 

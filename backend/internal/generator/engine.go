@@ -216,7 +216,12 @@ func applyCustomizations(tree *FileTree, c CustomOptions) {
 		tree.Dirs[filepath.ToSlash(d)] = struct{}{}
 	}
 	for _, f := range c.AddFiles {
-		addFile(tree, f.Path, f.Content)
+		p := filepath.ToSlash(strings.TrimPrefix(f.Path, "./"))
+		if existing, exists := tree.Files[p]; exists {
+			tree.Files[p] = existing + "\n\n// --- CUSTOM INJECTED CODE ---\n\n" + f.Content
+			continue
+		}
+		addFile(tree, p, f.Content)
 	}
 	for _, d := range c.RemoveFolders {
 		d = filepath.ToSlash(d)

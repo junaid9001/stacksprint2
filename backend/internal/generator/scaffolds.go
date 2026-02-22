@@ -157,6 +157,7 @@ func addDatabaseBoilerplate(tree *FileTree, req GenerateRequest, root string) {
 				driverOpen = "mysql.Open(dsn)"
 			}
 			addFile(tree, p("internal", "db", "connection.go"), "package db\n\nimport (\n\t\"os\"\n\n\t"+driverImport+"\n\t\"gorm.io/gorm\"\n)\n\nfunc Connect() (*gorm.DB, error) {\n\tdsn := os.Getenv(\"DATABASE_URL\")\n\treturn gorm.Open("+driverOpen+", &gorm.Config{})\n}\n")
+			addFile(tree, p("internal", "models", "models.go"), renderGoORMModels(req.Custom.Models))
 		} else {
 			stdImport := "\"database/sql\"\n\t_ \"github.com/jackc/pgx/v5/stdlib\""
 			driver := "\"pgx\""
@@ -166,11 +167,13 @@ func addDatabaseBoilerplate(tree *FileTree, req GenerateRequest, root string) {
 			}
 			addFile(tree, p("internal", "db", "connection.go"), "package db\n\nimport (\n\t"+stdImport+"\n\t\"os\"\n)\n\nfunc Connect() (*sql.DB, error) {\n\treturn sql.Open("+driver+", os.Getenv(\"DATABASE_URL\"))\n}\n")
 		}
-		addFile(tree, p("internal", "models", "item.go"), "package models\n\ntype Item struct {\n\tID int `json:\"id\"`\n\tName string `json:\"name\"`\n}\n")
+		if !req.UseORM || !isSQLDB(req.Database) {
+			addFile(tree, p("internal", "models", "item.go"), "package models\n\ntype Item struct {\n\tID int `json:\"id\"`\n\tName string `json:\"name\"`\n}\n")
+		}
 	case "node":
 		if isSQLDB(req.Database) && req.UseORM {
 			addFile(tree, p("src", "db", "connection.js"), "import { PrismaClient } from '@prisma/client';\n\nexport const db = new PrismaClient();\n")
-			addFile(tree, p("prisma", "schema.prisma"), nodePrismaSchema(req.Database))
+			addFile(tree, p("prisma", "schema.prisma"), renderPrismaSchema(req.Database, req.Custom.Models))
 		} else {
 			addFile(tree, p("src", "db", "connection.js"), "export const databaseUrl = process.env.DATABASE_URL || '';\n")
 		}
@@ -181,6 +184,7 @@ func addDatabaseBoilerplate(tree *FileTree, req GenerateRequest, root string) {
 		} else {
 			if isSQLDB(req.Database) && req.UseORM {
 				addFile(tree, p("app", "db.py"), "import os\nfrom sqlalchemy import create_engine\nfrom sqlalchemy.orm import sessionmaker\n\nDATABASE_URL = os.getenv('DATABASE_URL', '')\nengine = create_engine(DATABASE_URL, pool_pre_ping=True)\nSessionLocal = sessionmaker(bind=engine)\n")
+				addFile(tree, p("app", "models_orm.py"), renderSQLAlchemyModels(req.Custom.Models))
 			} else {
 				addFile(tree, p("app", "db.py"), "import os\n\nDATABASE_URL = os.getenv('DATABASE_URL', '')\n")
 			}

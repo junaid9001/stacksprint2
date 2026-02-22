@@ -6,7 +6,7 @@ import (
 )
 
 func (e *Engine) generateNodeMonolith(tree *FileTree, req GenerateRequest) error {
-	specs := nodeMonolithTemplateSpecs(req.Architecture)
+	specs := nodeMonolithTemplateSpecs(req)
 	data := map[string]any{
 		"Framework":    req.Framework,
 		"Architecture": req.Architecture,
@@ -39,7 +39,7 @@ func (e *Engine) generateNodeMonolith(tree *FileTree, req GenerateRequest) error
 }
 
 func (e *Engine) generateNodeService(tree *FileTree, req GenerateRequest, svcRoot string, svc ServiceConfig) error {
-	specs := nodeMicroserviceTemplateSpecs()
+	specs := nodeMicroserviceTemplateSpecs(req)
 	data := map[string]any{
 		"Framework":    req.Framework,
 		"Architecture": req.Architecture,
@@ -58,30 +58,51 @@ func (e *Engine) generateNodeService(tree *FileTree, req GenerateRequest, svcRoo
 	return nil
 }
 
-func nodeMonolithTemplateSpecs(arch string) []templateSpec {
-	switch arch {
+func nodeMonolithTemplateSpecs(req GenerateRequest) []templateSpec {
+	withCRUD := isEnabled(req.FileToggles.ExampleCRUD)
+	switch req.Architecture {
 	case "clean":
-		return []templateSpec{
+		base := []templateSpec{
 			{Template: "node/clean/src/index.tmpl", Output: "src/index.js"},
-			{Template: "node/clean/src/domain/item.tmpl", Output: "src/domain/item.js"},
-			{Template: "node/clean/src/usecases/listItems.tmpl", Output: "src/usecases/listItems.js"},
-			{Template: "node/clean/src/controllers/itemController.tmpl", Output: "src/controllers/itemController.js"},
-			{Template: "node/clean/src/repositories/itemRepository.tmpl", Output: "src/repositories/itemRepository.js"},
 		}
+		if withCRUD {
+			return append(base, []templateSpec{
+				{Template: "node/clean/src/domain/item.tmpl", Output: "src/domain/item.js"},
+				{Template: "node/clean/src/usecases/listItems.tmpl", Output: "src/usecases/listItems.js"},
+				{Template: "node/clean/src/controllers/itemController.tmpl", Output: "src/controllers/itemController.js"},
+				{Template: "node/clean/src/repositories/itemRepository.tmpl", Output: "src/repositories/itemRepository.js"},
+			}...)
+		}
+		return append(base, []templateSpec{
+			{Template: "node/clean/src/domain/ping.tmpl", Output: "src/domain/ping.js"},
+			{Template: "node/clean/src/usecases/pingUsecase.tmpl", Output: "src/usecases/pingUsecase.js"},
+			{Template: "node/clean/src/controllers/pingController.tmpl", Output: "src/controllers/pingController.js"},
+			{Template: "node/clean/src/repositories/pingRepository.tmpl", Output: "src/repositories/pingRepository.js"},
+		}...)
 	case "hexagonal":
-		return []templateSpec{
+		base := []templateSpec{
 			{Template: "node/hexagonal/src/index.tmpl", Output: "src/index.js"},
-			{Template: "node/hexagonal/src/core/ports/itemRepositoryPort.tmpl", Output: "src/core/ports/itemRepositoryPort.js"},
-			{Template: "node/hexagonal/src/core/services/itemService.tmpl", Output: "src/core/services/itemService.js"},
-			{Template: "node/hexagonal/src/adapters/primary/http/itemController.tmpl", Output: "src/adapters/primary/http/itemController.js"},
-			{Template: "node/hexagonal/src/adapters/secondary/database/itemRepositoryAdapter.tmpl", Output: "src/adapters/secondary/database/itemRepositoryAdapter.js"},
 		}
+		if withCRUD {
+			return append(base, []templateSpec{
+				{Template: "node/hexagonal/src/core/ports/itemRepositoryPort.tmpl", Output: "src/core/ports/itemRepositoryPort.js"},
+				{Template: "node/hexagonal/src/core/services/itemService.tmpl", Output: "src/core/services/itemService.js"},
+				{Template: "node/hexagonal/src/adapters/primary/http/itemController.tmpl", Output: "src/adapters/primary/http/itemController.js"},
+				{Template: "node/hexagonal/src/adapters/secondary/database/itemRepositoryAdapter.tmpl", Output: "src/adapters/secondary/database/itemRepositoryAdapter.js"},
+			}...)
+		}
+		return append(base, []templateSpec{
+			{Template: "node/hexagonal/src/core/ports/pingPort.tmpl", Output: "src/core/ports/pingPort.js"},
+			{Template: "node/hexagonal/src/core/services/pingService.tmpl", Output: "src/core/services/pingService.js"},
+			{Template: "node/hexagonal/src/adapters/primary/http/pingController.tmpl", Output: "src/adapters/primary/http/pingController.js"},
+			{Template: "node/hexagonal/src/adapters/secondary/database/pingAdapter.tmpl", Output: "src/adapters/secondary/database/pingAdapter.js"},
+		}...)
 	default:
-		return []templateSpec{{Template: fmt.Sprintf("node/%s/main.tmpl", archTemplateName(arch)), Output: "src/index.js"}}
+		return []templateSpec{{Template: fmt.Sprintf("node/%s/main.tmpl", archTemplateName(req.Architecture)), Output: "src/index.js"}}
 	}
 }
 
-func nodeMicroserviceTemplateSpecs() []templateSpec {
+func nodeMicroserviceTemplateSpecs(_ GenerateRequest) []templateSpec {
 	return []templateSpec{{Template: "node/microservice/main.tmpl", Output: "src/index.js"}}
 }
 
@@ -94,7 +115,7 @@ func addNodeDBBoilerplate(tree *FileTree, req GenerateRequest, root string) {
 		prefix += "/"
 	}
 	if req.UseORM {
-		addFile(tree, prefix+"prisma/schema.prisma", nodePrismaSchema(req.Database))
+		addFile(tree, prefix+"prisma/schema.prisma", renderPrismaSchema(req.Database, req.Custom.Models))
 		addFile(tree, prefix+"src/db/prismaClient.js", "import { PrismaClient } from '@prisma/client';\n\nexport const prisma = new PrismaClient();\n")
 		return
 	}
@@ -103,12 +124,4 @@ func addNodeDBBoilerplate(tree *FileTree, req GenerateRequest, root string) {
 		return
 	}
 	addFile(tree, prefix+"src/db/sqlClient.js", "import mysql from 'mysql2/promise';\n\nexport const db = await mysql.createConnection(process.env.DATABASE_URL || 'mysql://app:app@mysql:3306/app');\n")
-}
-
-func nodePrismaSchema(db string) string {
-	provider := "postgresql"
-	if db == "mysql" {
-		provider = "mysql"
-	}
-	return fmt.Sprintf("generator client {\n  provider = \"prisma-client-js\"\n}\n\ndatasource db {\n  provider = \"%s\"\n  url      = env(\"DATABASE_URL\")\n}\n\nmodel Item {\n  id   Int    @id @default(autoincrement())\n  name String\n}\n", provider)
 }

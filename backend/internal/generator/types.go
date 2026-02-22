@@ -53,9 +53,20 @@ type FileToggleOptions struct {
 type CustomOptions struct {
 	AddFolders      []string     `json:"add_folders"`
 	AddFiles        []CustomFile `json:"add_files"`
+	Models          []DataModel  `json:"models"`
 	AddServiceNames []string     `json:"add_service_names"`
 	RemoveFolders   []string     `json:"remove_folders"`
 	RemoveFiles     []string     `json:"remove_files"`
+}
+
+type DataModel struct {
+	Name   string      `json:"name"`
+	Fields []DataField `json:"fields"`
+}
+
+type DataField struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 type CustomFile struct {
