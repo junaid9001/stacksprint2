@@ -20,6 +20,7 @@ func (e *Engine) generateGoMonolith(tree *FileTree, req GenerateRequest) error {
 		"Port":         8080,
 		"UseDB":        req.Database != "none",
 		"UseSQL":       isSQLDB(req.Database),
+		"UseORM":       req.UseORM,
 		"DBKind":       req.Database,
 		"Module":       module,
 		"Service":      "app",
@@ -27,7 +28,7 @@ func (e *Engine) generateGoMonolith(tree *FileTree, req GenerateRequest) error {
 	if err := e.renderSpecs(tree, specs, data, ""); err != nil {
 		return err
 	}
-	addFile(tree, "go.mod", goModV2(req.Framework, req.Root, req.Database, strings.EqualFold(req.ServiceCommunication, "grpc")))
+	addFile(tree, "go.mod", goModV2(req.Framework, req.Root, req.Database, req.UseORM, strings.EqualFold(req.ServiceCommunication, "grpc")))
 	if isEnabled(req.FileToggles.Config) {
 		addFile(tree, "internal/config/config.go", goConfigLoader())
 	}
@@ -55,6 +56,7 @@ func (e *Engine) generateGoService(tree *FileTree, req GenerateRequest, svcRoot 
 		"Port":         svc.Port,
 		"UseDB":        req.Database != "none",
 		"UseSQL":       isSQLDB(req.Database),
+		"UseORM":       req.UseORM,
 		"DBKind":       req.Database,
 		"Module":       module,
 		"Service":      svc.Name,
@@ -62,7 +64,7 @@ func (e *Engine) generateGoService(tree *FileTree, req GenerateRequest, svcRoot 
 	if err := e.renderSpecs(tree, specs, data, svcRoot); err != nil {
 		return err
 	}
-	addFile(tree, path.Join(svcRoot, "go.mod"), goModV2(req.Framework, RootOptions{Module: module}, req.Database, strings.EqualFold(req.ServiceCommunication, "grpc")))
+	addFile(tree, path.Join(svcRoot, "go.mod"), goModV2(req.Framework, RootOptions{Module: module}, req.Database, req.UseORM, strings.EqualFold(req.ServiceCommunication, "grpc")))
 	return nil
 }
 

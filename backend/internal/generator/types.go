@@ -6,6 +6,7 @@ type GenerateRequest struct {
 	Architecture         string            `json:"architecture"`
 	Services             []ServiceConfig   `json:"services"`
 	Database             string            `json:"db"`
+	UseORM               bool              `json:"use_orm"`
 	Infra                InfraOptions      `json:"infra"`
 	Features             FeatureOptions    `json:"features"`
 	FileToggles          FileToggleOptions `json:"file_toggles"`
@@ -71,8 +72,9 @@ type RootOptions struct {
 }
 
 type GenerateResponse struct {
-	BashScript       string `json:"bash_script"`
-	PowerShellScript string `json:"powershell_script"`
+	BashScript       string   `json:"bash_script"`
+	PowerShellScript string   `json:"powershell_script"`
+	FilePaths        []string `json:"file_paths"`
 }
 
 type FileTree struct {

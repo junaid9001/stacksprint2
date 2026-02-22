@@ -17,14 +17,29 @@ func goMod(framework string, root RootOptions) string {
 	return fmt.Sprintf("module %s\n\ngo 1.23\n\nrequire (\n\t%s\n)\n", module, fwDep)
 }
 
-func nodePackageJSON(framework string, withDB bool) string {
+func nodePackageJSON(framework string, db string, useORM bool) string {
 	dep := "express"
 	if framework == "fastify" {
 		dep = "fastify"
 	}
 	extra := ""
-	if withDB {
-		extra = ",\n    \"pg\": \"^8.13.3\""
+	if db == "postgresql" {
+		if useORM {
+			extra = ",\n    \"@prisma/client\": \"^6.2.1\""
+		} else {
+			extra = ",\n    \"pg\": \"^8.13.3\""
+		}
+	}
+	if db == "mysql" {
+		if useORM {
+			extra = ",\n    \"@prisma/client\": \"^6.2.1\""
+		} else {
+			extra = ",\n    \"mysql2\": \"^3.12.0\""
+		}
+	}
+	devExtra := ""
+	if useORM && (db == "postgresql" || db == "mysql") {
+		devExtra = ",\n  \"devDependencies\": {\n    \"prisma\": \"^6.2.1\"\n  }"
 	}
 	return fmt.Sprintf(`{
   "name": "stacksprint-generated",
@@ -38,21 +53,36 @@ func nodePackageJSON(framework string, withDB bool) string {
   },
   "dependencies": {
     "%s": "^5.0.0"%s
-  }
+  }%s
 }
-`, dep, extra)
+`, dep, extra, devExtra)
 }
 
-func pythonRequirements(framework string, withDB bool) string {
+func pythonRequirements(framework string, db string, useORM bool) string {
 	if framework == "django" {
 		base := "Django==5.1.5\ndjangorestframework==3.15.2\n"
-		if withDB {
+		if db == "postgresql" {
 			return base + "psycopg[binary]==3.2.3\n"
+		}
+		if db == "mysql" {
+			return base + "mysqlclient==2.2.7\n"
 		}
 		return base
 	}
 	base := "fastapi==0.116.0\nuvicorn==0.34.0\n"
-	if withDB {
+	if db == "postgresql" {
+		if useORM {
+			return base + "SQLAlchemy==2.0.36\npsycopg[binary]==3.2.3\n"
+		}
+		return base + "psycopg[binary]==3.2.3\n"
+	}
+	if db == "mysql" {
+		if useORM {
+			return base + "SQLAlchemy==2.0.36\nPyMySQL==1.1.1\n"
+		}
+		return base + "PyMySQL==1.1.1\n"
+	}
+	if db != "none" && useORM {
 		return base + "SQLAlchemy==2.0.36\npsycopg[binary]==3.2.3\n"
 	}
 	return base
@@ -119,16 +149,41 @@ func addDatabaseBoilerplate(tree *FileTree, req GenerateRequest, root string) {
 	}
 	switch req.Language {
 	case "go":
-		addFile(tree, p("internal", "db", "connection.go"), "package db\n\nimport \"os\"\n\nfunc URL() string { return os.Getenv(\"DATABASE_URL\") }\n")
+		if isSQLDB(req.Database) && req.UseORM {
+			driverImport := "\"gorm.io/driver/postgres\""
+			driverOpen := "postgres.Open(dsn)"
+			if req.Database == "mysql" {
+				driverImport = "\"gorm.io/driver/mysql\""
+				driverOpen = "mysql.Open(dsn)"
+			}
+			addFile(tree, p("internal", "db", "connection.go"), "package db\n\nimport (\n\t\"os\"\n\n\t"+driverImport+"\n\t\"gorm.io/gorm\"\n)\n\nfunc Connect() (*gorm.DB, error) {\n\tdsn := os.Getenv(\"DATABASE_URL\")\n\treturn gorm.Open("+driverOpen+", &gorm.Config{})\n}\n")
+		} else {
+			stdImport := "\"database/sql\"\n\t_ \"github.com/jackc/pgx/v5/stdlib\""
+			driver := "\"pgx\""
+			if req.Database == "mysql" {
+				stdImport = "\"database/sql\"\n\t_ \"github.com/go-sql-driver/mysql\""
+				driver = "\"mysql\""
+			}
+			addFile(tree, p("internal", "db", "connection.go"), "package db\n\nimport (\n\t"+stdImport+"\n\t\"os\"\n)\n\nfunc Connect() (*sql.DB, error) {\n\treturn sql.Open("+driver+", os.Getenv(\"DATABASE_URL\"))\n}\n")
+		}
 		addFile(tree, p("internal", "models", "item.go"), "package models\n\ntype Item struct {\n\tID int `json:\"id\"`\n\tName string `json:\"name\"`\n}\n")
 	case "node":
-		addFile(tree, p("src", "db", "connection.js"), "export const databaseUrl = process.env.DATABASE_URL || '';\n")
+		if isSQLDB(req.Database) && req.UseORM {
+			addFile(tree, p("src", "db", "connection.js"), "import { PrismaClient } from '@prisma/client';\n\nexport const db = new PrismaClient();\n")
+			addFile(tree, p("prisma", "schema.prisma"), nodePrismaSchema(req.Database))
+		} else {
+			addFile(tree, p("src", "db", "connection.js"), "export const databaseUrl = process.env.DATABASE_URL || '';\n")
+		}
 		addFile(tree, p("src", "models", "item.js"), "export class Item {\n  constructor(id, name) { this.id = id; this.name = name; }\n}\n")
 	case "python":
 		if req.Framework == "django" {
 			addFile(tree, p("api", "models.py"), "from django.db import models\n\nclass Item(models.Model):\n    name = models.CharField(max_length=255)\n")
 		} else {
-			addFile(tree, p("app", "db.py"), "import os\n\nDATABASE_URL = os.getenv('DATABASE_URL', '')\n")
+			if isSQLDB(req.Database) && req.UseORM {
+				addFile(tree, p("app", "db.py"), "import os\nfrom sqlalchemy import create_engine\nfrom sqlalchemy.orm import sessionmaker\n\nDATABASE_URL = os.getenv('DATABASE_URL', '')\nengine = create_engine(DATABASE_URL, pool_pre_ping=True)\nSessionLocal = sessionmaker(bind=engine)\n")
+			} else {
+				addFile(tree, p("app", "db.py"), "import os\n\nDATABASE_URL = os.getenv('DATABASE_URL', '')\n")
+			}
 			addFile(tree, p("app", "models.py"), "from pydantic import BaseModel\n\nclass Item(BaseModel):\n    id: int\n    name: str\n")
 		}
 	}
@@ -357,7 +412,7 @@ func addDjangoFiles(tree *FileTree, req GenerateRequest, main string) {
 	addFile(tree, "api/apps.py", "from django.apps import AppConfig\n\nclass ApiConfig(AppConfig):\n    default_auto_field = 'django.db.models.BigAutoField'\n    name = 'api'\n")
 	addFile(tree, "api/urls.py", "from django.urls import path\nfrom .views import health, items\n\nurlpatterns = [\n    path('health', health),\n    path('items', items),\n]\n")
 	addFile(tree, "api/views.py", "from rest_framework.decorators import api_view\nfrom rest_framework.response import Response\n\n@api_view(['GET'])\ndef health(request):\n    return Response({\"status\": \"ok\"})\n\n@api_view(['GET'])\ndef items(request):\n    return Response([{\"id\": 1, \"name\": \"sample\"}])\n")
-	addFile(tree, "requirements.txt", pythonRequirements("django", req.Database != "none"))
+	addFile(tree, "requirements.txt", pythonRequirements("django", req.Database, req.UseORM))
 }
 
 func addDjangoFilesAtRoot(tree *FileTree, req GenerateRequest, main string, root string) {
@@ -371,7 +426,7 @@ func addDjangoFilesAtRoot(tree *FileTree, req GenerateRequest, main string, root
 	addFile(tree, root+"/api/apps.py", "from django.apps import AppConfig\n\nclass ApiConfig(AppConfig):\n    default_auto_field = 'django.db.models.BigAutoField'\n    name = 'api'\n")
 	addFile(tree, root+"/api/urls.py", "from django.urls import path\nfrom .views import health, items\nurlpatterns = [path('health', health), path('items', items)]\n")
 	addFile(tree, root+"/api/views.py", "from rest_framework.decorators import api_view\nfrom rest_framework.response import Response\n\n@api_view(['GET'])\ndef health(request):\n    return Response({\"status\": \"ok\"})\n\n@api_view(['GET'])\ndef items(request):\n    return Response([{\"id\":1,\"name\":\"sample\"}])\n")
-	addFile(tree, root+"/requirements.txt", pythonRequirements("django", req.Database != "none"))
+	addFile(tree, root+"/requirements.txt", pythonRequirements("django", req.Database, req.UseORM))
 }
 
 func djangoSettings(withDB bool) string {

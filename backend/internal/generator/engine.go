@@ -2,7 +2,6 @@ package generator
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -110,59 +109,18 @@ func (e *Engine) generateCore(tree *FileTree, req GenerateRequest) error {
 }
 
 func (e *Engine) generateMonolith(tree *FileTree, req GenerateRequest) error {
-	if req.Language == "go" {
+	switch req.Language {
+	case "go":
 		if err := e.generateGoMonolith(tree, req); err != nil {
 			return err
 		}
-	} else {
-		arch := archTemplateName(req.Architecture)
-		tplPath := fmt.Sprintf("%s/%s/main.tmpl", req.Language, arch)
-		main, err := e.registry.Render(tplPath, map[string]any{
-			"Framework":    req.Framework,
-			"Architecture": req.Architecture,
-			"Port":         8080,
-			"UseDB":        req.Database != "none",
-			"DBKind":       req.Database,
-		})
-		if err != nil {
+	case "node":
+		if err := e.generateNodeMonolith(tree, req); err != nil {
 			return err
 		}
-
-		switch req.Language {
-		case "node":
-			addFile(tree, "src/index.js", main)
-			addFile(tree, "package.json", nodePackageJSON(req.Framework, req.Database != "none"))
-			if isEnabled(req.FileToggles.Config) {
-				addFile(tree, "src/config/index.js", nodeConfigLoader())
-			}
-			if req.Features.Logger || isEnabled(req.FileToggles.Logger) {
-				addFile(tree, "src/logger/index.js", nodeLogger())
-			}
-			if req.Features.GlobalError {
-				addFile(tree, "src/middleware/error.js", nodeGlobalError())
-			}
-			if req.Features.SampleTest {
-				addFile(tree, "tests/items.test.js", nodeSampleTest(req.Framework))
-			}
-		case "python":
-			if req.Framework == "django" {
-				addDjangoFiles(tree, req, main)
-			} else {
-				addFile(tree, "app/main.py", main)
-				addFile(tree, "requirements.txt", pythonRequirements(req.Framework, req.Database != "none"))
-				if isEnabled(req.FileToggles.Config) {
-					addFile(tree, "app/config.py", pythonConfigLoader())
-				}
-				if req.Features.Logger || isEnabled(req.FileToggles.Logger) {
-					addFile(tree, "app/logger.py", pythonLogger())
-				}
-				if req.Features.GlobalError {
-					addFile(tree, "app/error_handler.py", pythonErrorHandler())
-				}
-				if req.Features.SampleTest {
-					addFile(tree, "tests/test_items.py", pythonSampleTest())
-				}
-			}
+	case "python":
+		if err := e.generatePythonMonolith(tree, req); err != nil {
+			return err
 		}
 	}
 
@@ -189,7 +147,6 @@ func (e *Engine) generateMonolith(tree *FileTree, req GenerateRequest) error {
 }
 
 func (e *Engine) generateMicroservices(tree *FileTree, req GenerateRequest) error {
-	arch := archTemplateName(req.Architecture)
 	for _, svc := range req.Services {
 		svcRoot := path.Join("services", svc.Name)
 
@@ -199,38 +156,12 @@ func (e *Engine) generateMicroservices(tree *FileTree, req GenerateRequest) erro
 				return err
 			}
 		case "node":
-			tplPath := fmt.Sprintf("%s/%s/main.tmpl", req.Language, arch)
-			main, err := e.registry.Render(tplPath, map[string]any{
-				"Framework":    req.Framework,
-				"Architecture": req.Architecture,
-				"Port":         svc.Port,
-				"Service":      svc.Name,
-				"UseDB":        req.Database != "none",
-				"DBKind":       req.Database,
-			})
-			if err != nil {
+			if err := e.generateNodeService(tree, req, svcRoot, svc); err != nil {
 				return err
 			}
-			addFile(tree, path.Join(svcRoot, "src/index.js"), main)
-			addFile(tree, path.Join(svcRoot, "package.json"), nodePackageJSON(req.Framework, req.Database != "none"))
 		case "python":
-			tplPath := fmt.Sprintf("%s/%s/main.tmpl", req.Language, arch)
-			main, err := e.registry.Render(tplPath, map[string]any{
-				"Framework":    req.Framework,
-				"Architecture": req.Architecture,
-				"Port":         svc.Port,
-				"Service":      svc.Name,
-				"UseDB":        req.Database != "none",
-				"DBKind":       req.Database,
-			})
-			if err != nil {
+			if err := e.generatePythonService(tree, req, svcRoot, svc); err != nil {
 				return err
-			}
-			if req.Framework == "django" {
-				addDjangoFilesAtRoot(tree, req, main, svcRoot)
-			} else {
-				addFile(tree, path.Join(svcRoot, "app/main.py"), main)
-				addFile(tree, path.Join(svcRoot, "requirements.txt"), pythonRequirements(req.Framework, req.Database != "none"))
 			}
 		}
 

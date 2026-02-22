@@ -13,7 +13,11 @@ func BuildScripts(req GenerateRequest, tree FileTree) (GenerateResponse, error) 
 	ensureGitKeepFiles(&tree)
 	bash := buildBash(req, tree)
 	pwsh := buildPowerShell(req, tree)
-	return GenerateResponse{BashScript: bash, PowerShellScript: pwsh}, nil
+	return GenerateResponse{
+		BashScript:       bash,
+		PowerShellScript: pwsh,
+		FilePaths:        collectFilePaths(tree),
+	}, nil
 }
 
 func buildBash(req GenerateRequest, tree FileTree) string {
@@ -181,4 +185,19 @@ func fileNamesSorted(in map[string]string) []string {
 
 func trimFinalNewline(v string) string {
 	return strings.TrimSuffix(v, "\n")
+}
+
+func collectFilePaths(tree FileTree) []string {
+	paths := make([]string, 0, len(tree.Dirs)+len(tree.Files))
+	for d := range tree.Dirs {
+		if d == "." || d == "" {
+			continue
+		}
+		paths = append(paths, d)
+	}
+	for f := range tree.Files {
+		paths = append(paths, f)
+	}
+	sort.Strings(paths)
+	return paths
 }

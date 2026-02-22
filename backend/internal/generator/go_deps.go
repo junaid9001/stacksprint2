@@ -17,7 +17,7 @@ func resolveGoModule(root RootOptions, fallback string) string {
 	return fallback
 }
 
-func goModV2(framework string, root RootOptions, db string, useGRPC bool) string {
+func goModV2(framework string, root RootOptions, db string, useORM bool, useGRPC bool) string {
 	module := resolveGoModule(root, "stacksprint/generated")
 
 	deps := []string{}
@@ -27,16 +27,24 @@ func goModV2(framework string, root RootOptions, db string, useGRPC bool) string
 		deps = append(deps, "github.com/gin-gonic/gin v1.10.0")
 	}
 	if db == "postgresql" {
-		deps = append(deps,
-			"gorm.io/gorm v1.25.12",
-			"gorm.io/driver/postgres v1.5.11",
-		)
+		if useORM {
+			deps = append(deps,
+				"gorm.io/gorm v1.25.12",
+				"gorm.io/driver/postgres v1.5.11",
+			)
+		} else {
+			deps = append(deps, "github.com/jackc/pgx/v5 v5.7.1")
+		}
 	}
 	if db == "mysql" {
-		deps = append(deps,
-			"gorm.io/gorm v1.25.12",
-			"gorm.io/driver/mysql v1.5.7",
-		)
+		if useORM {
+			deps = append(deps,
+				"gorm.io/gorm v1.25.12",
+				"gorm.io/driver/mysql v1.5.7",
+			)
+		} else {
+			deps = append(deps, "github.com/go-sql-driver/mysql v1.8.1")
+		}
 	}
 	if useGRPC {
 		deps = append(deps,
