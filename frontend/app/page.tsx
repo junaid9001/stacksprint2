@@ -2,6 +2,8 @@ import { ConfigProvider } from '@/src/context/ConfigContext';
 import { ToastProvider } from '@/components/ui/ToastContainer';
 import { Header } from '@/components/layout/Header';
 import { SidebarPreview } from '@/components/layout/SidebarPreview';
+import { QuickStart } from '@/components/forms/QuickStart';
+import { AdvancedOptions } from '@/components/forms/AdvancedOptions';
 import { PresetManager } from '@/components/forms/PresetManager';
 import { LanguageArchitectureForm } from '@/components/forms/LanguageArchitectureForm';
 import { DatabaseInfraForm } from '@/components/forms/DatabaseInfraForm';
@@ -17,14 +19,21 @@ export default function Page() {
         <main className="app-shell">
           <Header />
           <div className="layout">
-            <section className="panel">
-              <PresetManager />
-              <LanguageArchitectureForm />
-              <DatabaseInfraForm />
-              <OptionalFeaturesForm />
-              <FileTogglesForm />
-              <RootInitForm />
-              <CustomStructureBuilder />
+            <section className="form-column">
+              <QuickStart />
+
+              <div className="primary-cards">
+                <LanguageArchitectureForm />
+                <DatabaseInfraForm />
+                <RootInitForm />
+              </div>
+
+              <AdvancedOptions>
+                <OptionalFeaturesForm />
+                <FileTogglesForm />
+                <CustomStructureBuilder />
+                <PresetManager />
+              </AdvancedOptions>
             </section>
 
             <SidebarPreview />

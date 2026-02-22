@@ -8,7 +8,7 @@ export function OptionalFeaturesForm() {
     return (
         <article className="section section-animated">
             <div className="section-head">
-                <h2>3. Optional Features</h2>
+                <h2>Optional Features</h2>
                 <span className="hint">Boilerplate extras</span>
             </div>
             <div className="toggle-grid">

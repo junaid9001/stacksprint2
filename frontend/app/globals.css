@@ -503,3 +503,307 @@ pre {
 .toast-error { border-left: 4px solid var(--danger); }
 .toast-info { border-left: 4px solid var(--brand); }
 
+/* =====================================================================
+   Complexity Card
+   ===================================================================== */
+.complexity-card {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.complexity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.complexity-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.risk-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.complexity-bar-track {
+  background: var(--line);
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.complexity-bar-fill {
+  height: 6px;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.complexity-score-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.complexity-label { font-size: 0.78rem; color: var(--muted); }
+.complexity-score { font-size: 0.88rem; font-weight: 600; }
+.complexity-weights {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  margin-bottom: 8px;
+}
+.weight-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 2px 0;
+}
+.weight-value { color: var(--ink); font-weight: 600; }
+.complexity-suggestions {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.suggestions-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.suggestion-item {
+  font-size: 0.8rem;
+  color: #fbbf24;
+  padding: 3px 0;
+  line-height: 1.4;
+}
+
+/* =====================================================================
+   Collapsible Infra Section
+   ===================================================================== */
+.infra-section { margin-top: 14px; }
+.infra-toggle-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.infra-toggle-header:hover { background: rgba(51, 65, 85, 0.6); }
+.infra-toggle-icons { display: flex; align-items: center; gap: 8px; }
+.infra-active-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+.chevron { font-size: 0.7rem; color: var(--muted); }
+.infra-options { padding: 10px 0 4px; }
+.mvp-infra-hint { grid-column: 1 / -1; font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+/* =====================================================================
+   Output Stats Row
+   ===================================================================== */
+.output-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  background: rgba(30, 41, 59, 0.4);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+/* =====================================================================
+   Advanced Mode Toggle
+   ===================================================================== */
+.advanced-mode-toggle {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(59, 130, 246, 0.07);
+  border: 1px dashed rgba(59, 130, 246, 0.25);
+  border-radius: 8px;
+}
+
+.warning-reason { color: var(--muted); font-size: 0.75rem; }
+
+/* =====================================================================
+   StackSprint Anti-Cockpit Layout Redesign
+   ===================================================================== */
+.form-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.primary-cards {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quickstart-section {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid var(--brand);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+}
+
+.quickstart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.quickstart-header h2 { margin: 0; font-size: 1rem; color: var(--ink); }
+
+.quickstart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.quickstart-tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  text-align: left;
+  transition: transform 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.quickstart-tile:hover {
+  transform: translateY(-2px);
+  border-color: var(--brand);
+  background: rgba(30, 41, 59, 0.9);
+}
+
+.quickstart-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.quickstart-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quickstart-text strong {
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.quickstart-text span {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.advanced-accordion {
+  border: 1px dashed var(--line-strong);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.4);
+  overflow: hidden;
+}
+
+.advanced-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 16px;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.advanced-header:hover {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.advanced-badge {
+  background: var(--brand-2);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.advanced-content {
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* =====================================================================
+   Validation Errors
+   ===================================================================== */
+input.input-error {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+input.input-error:focus {
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15);
+}
+
+.field-error {
+  display: block;
+  color: var(--danger);
+  font-size: 0.75rem;
+  margin-top: 6px;
+  font-weight: 500;
+}
+
+/* =====================================================================
+   X-Ray File Tree Hover Indicators
+   ===================================================================== */
+.xray-indicator {
+  border-bottom: 1px dotted rgba(148, 163, 184, 0.6);
+  cursor: help;
+  transition: border-bottom-color 0.2s ease, color 0.2s ease;
+}
+
+.xray-indicator:hover {
+  border-bottom-color: var(--brand);
+  color: #60a5fa;
+}
+
+

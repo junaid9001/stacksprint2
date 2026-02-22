@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useConfig } from '@/src/context/ConfigContext';
 
 export function RootInitForm() {
@@ -12,11 +13,18 @@ export function RootInitForm() {
         gitInit, setGitInit
     } = useConfig();
 
+    const goModError = useMemo(() => {
+        if (language !== 'go' || !moduleName) return null;
+        if (moduleName.includes(' ')) return 'Module name cannot contain spaces.';
+        if (/[A-Z]/.test(moduleName)) return 'Module name must be lowercase.';
+        return null;
+    }, [language, moduleName]);
+
     return (
         <article className="section section-animated">
             <div className="section-head">
-                <h2>5. Root Initialization</h2>
-                <span className="hint">Target directory setup</span>
+                <h2>Project Details</h2>
+                <span className="hint">Name, module path, and git</span>
             </div>
             <div className="field">
                 <label>Root mode</label>
@@ -38,7 +46,13 @@ export function RootInitForm() {
             </label>
             {language === 'go' && (
                 <div className="field">
-                    <input value={moduleName} onChange={(e) => setModuleName(e.target.value)} placeholder="go module name" />
+                    <input
+                        className={goModError ? 'input-error' : ''}
+                        value={moduleName}
+                        onChange={(e) => setModuleName(e.target.value)}
+                        placeholder="go module name"
+                    />
+                    {goModError && <span className="field-error">{goModError}</span>}
                 </div>
             )}
         </article>

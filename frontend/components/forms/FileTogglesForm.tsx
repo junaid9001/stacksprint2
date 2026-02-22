@@ -8,7 +8,7 @@ export function FileTogglesForm() {
     return (
         <article className="section section-animated">
             <div className="section-head">
-                <h2>4. File Toggles</h2>
+                <h2>File Toggles</h2>
                 <span className="hint">Default generated files</span>
             </div>
             <div className="toggle-grid">

@@ -28,7 +28,7 @@ export function CustomStructureBuilder() {
     return (
         <article className="section section-animated">
             <div className="section-head">
-                <h2>6. Custom Structure Builder</h2>
+                <h2>Custom Structure Builder</h2>
                 <span className="hint">Add or remove paths dynamically</span>
             </div>
             <div className="field">
