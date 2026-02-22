@@ -17,27 +17,27 @@ func NewEngine(registry *TemplateRegistry) *Engine {
 }
 
 func (e *Engine) Generate(_ context.Context, req GenerateRequest) (GenerateResponse, error) {
-	req = normalize(req)
-	if err := Validate(req); err != nil {
+	req = NormalizeConfig(req)
+	req, decisions := ApplyRuleEngine(req)
+	if err := ValidateConfig(req); err != nil {
 		return GenerateResponse{}, err
 	}
 
-	tree := FileTree{Files: map[string]string{}, Dirs: map[string]struct{}{}}
-	tree.Dirs["."] = struct{}{}
-
-	if err := e.generateCore(&tree, req); err != nil {
+	tree, err := GenerateFileTree(req, e)
+	if err != nil {
 		return GenerateResponse{}, err
 	}
-	warnings := applyCustomizations(&tree, req.Custom)
 
+	warnings := ApplyMutations(&tree, req.Custom)
 	resp, err := BuildScripts(req, tree)
-	if err == nil && len(warnings) > 0 {
-		resp.Warnings = append(resp.Warnings, warnings...)
+	if err != nil {
+		return GenerateResponse{}, err
 	}
-	return resp, err
+
+	return BuildMetadata(&resp, warnings, decisions), nil
 }
 
-func normalize(req GenerateRequest) GenerateRequest {
+func NormalizeConfig(req GenerateRequest) GenerateRequest {
 	req.Language = strings.ToLower(strings.TrimSpace(req.Language))
 	req.Framework = strings.ToLower(strings.TrimSpace(req.Framework))
 	req.Architecture = strings.ToLower(strings.TrimSpace(req.Architecture))
@@ -52,8 +52,15 @@ func normalize(req GenerateRequest) GenerateRequest {
 	if req.Root.Mode == "new" && req.Root.Name == "" {
 		req.Root.Name = "stacksprint-generated"
 	}
+	return req
+}
+
+func ApplyRuleEngine(req GenerateRequest) (GenerateRequest, []string) {
+	var decisions []string
+
 	if req.Architecture == "microservices" && len(req.Services) == 0 {
 		req.Services = []ServiceConfig{{Name: "users", Port: 8081}, {Name: "orders", Port: 8082}}
+		decisions = append(decisions, "Injected default services for microservice architecture.")
 	}
 	if req.Architecture == "microservices" && len(req.Custom.AddServiceNames) > 0 {
 		basePort := 8081
@@ -61,53 +68,83 @@ func normalize(req GenerateRequest) GenerateRequest {
 		for i, name := range req.Custom.AddServiceNames {
 			req.Services = append(req.Services, ServiceConfig{Name: name, Port: basePort + i})
 		}
+		decisions = append(decisions, "Mapped dynamic custom services to microservice array.")
 	}
-	return req
+	if req.Database == "none" && req.UseORM {
+		req.UseORM = false
+		decisions = append(decisions, "Disabled ORM generation since database was set to none.")
+	}
+
+	return req, decisions
 }
 
-func (e *Engine) generateCore(tree *FileTree, req GenerateRequest) error {
+func ValidateConfig(req GenerateRequest) error {
+	return Validate(req)
+}
+
+func GenerateFileTree(req GenerateRequest, e *Engine) (FileTree, error) {
+	tree := FileTree{Files: map[string]string{}, Dirs: map[string]struct{}{}}
+	tree.Dirs["."] = struct{}{}
+
 	if req.Architecture == "microservices" {
-		if err := e.generateMicroservices(tree, req); err != nil {
-			return err
+		if err := e.generateMicroservices(&tree, req); err != nil {
+			return tree, err
 		}
 	} else {
-		if err := e.generateMonolith(tree, req); err != nil {
-			return err
+		if err := e.generateMonolith(&tree, req); err != nil {
+			return tree, err
 		}
 	}
 
 	if isEnabled(req.FileToggles.Compose) {
-		addFile(tree, "docker-compose.yaml", buildCompose(req))
+		addFile(&tree, "docker-compose.yaml", buildCompose(req))
 	}
 	if isEnabled(req.FileToggles.Env) && req.Architecture != "microservices" {
-		addFile(tree, ".env", buildEnv(req, "", 8080))
+		addFile(&tree, ".env", buildEnv(req, "", 8080))
 	}
 	if isEnabled(req.FileToggles.Gitignore) {
-		addFile(tree, ".gitignore", baseGitignore(req.Language))
+		addFile(&tree, ".gitignore", baseGitignore(req.Language))
 	}
 	if isEnabled(req.FileToggles.Readme) {
-		addFile(tree, "README.md", buildREADME(req))
+		addFile(&tree, "README.md", buildREADME(req))
 	}
 
 	if req.Features.GitHubActions {
-		addFile(tree, ".github/workflows/ci.yaml", buildCIPipeline(req))
+		addFile(&tree, ".github/workflows/ci.yaml", buildCIPipeline(req))
 	}
 	if req.Features.Makefile {
-		addFile(tree, "Makefile", buildMakefile(req))
+		addFile(&tree, "Makefile", buildMakefile(req))
 	}
 	if req.Features.Swagger {
-		addFile(tree, "docs/openapi.yaml", buildOpenAPI(req))
+		addFile(&tree, "docs/openapi.yaml", buildOpenAPI(req))
 	}
 	if req.Database != "none" {
-		addFile(tree, "migrations/001_initial.sql", sampleMigration(req.Database, req.Custom.Models))
-		addFile(tree, "db/init/001_init.sql", sampleDBInit(req.Database, req.Custom.Models))
+		addFile(&tree, "migrations/001_initial.sql", sampleMigration(req.Database, req.Custom.Models))
+		addFile(&tree, "db/init/001_init.sql", sampleDBInit(req.Database, req.Custom.Models))
 	}
 	if strings.EqualFold(req.ServiceCommunication, "grpc") {
-		addFile(tree, "proto/README.md", "# Shared proto definitions\n\nPlace your protobuf contracts here.\n")
-		addFile(tree, "proto/common.proto", "syntax = \"proto3\";\npackage stacksprint;\n\nservice InternalService {\n  rpc Ping(PingRequest) returns (PingReply);\n}\n\nmessage PingRequest {\n  string source = 1;\n}\n\nmessage PingReply {\n  string message = 1;\n}\n")
-		addGRPCBoilerplate(tree, req, "")
+		addFile(&tree, "proto/README.md", "# Shared proto definitions\n\nPlace your protobuf contracts here.\n")
+		addFile(&tree, "proto/common.proto", "syntax = \"proto3\";\npackage stacksprint;\n\nservice InternalService {\n  rpc Ping(PingRequest) returns (PingReply);\n}\n\nmessage PingRequest {\n  string source = 1;\n}\n\nmessage PingReply {\n  string message = 1;\n}\n")
+		addGRPCBoilerplate(&tree, req, "")
 	}
-	return nil
+
+	return tree, nil
+}
+
+func ApplyMutations(tree *FileTree, custom CustomOptions) []string {
+	return applyCustomizations(tree, custom)
+}
+
+func BuildMetadata(resp *GenerateResponse, warnings, decisions []string) GenerateResponse {
+	if len(warnings) > 0 {
+		resp.Warnings = append(resp.Warnings, warnings...)
+	}
+	// Note: Engine doesn't have a `.Decisions` struct exposed to HTTP natively.
+	// For now, mapping into Warnings pipeline or logging. (Assuming Warnings slice handles string arrays)
+	if len(decisions) > 0 {
+		resp.Warnings = append(resp.Warnings, decisions...)
+	}
+	return *resp
 }
 
 func (e *Engine) generateMonolith(tree *FileTree, req GenerateRequest) error {
