@@ -15,12 +15,20 @@ func main() {
 	{{if eq .Framework "gin"}}
 	r := gin.Default()
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "architecture": "mvp"}) })
-	r.GET("/api/v1/items", func(c *gin.Context) { c.JSON(200, []gin.H{{"id": 1, "name": "sample"}}) })
+	r.GET("/api/v1/items", func(c *gin.Context) {
+		items := make([]gin.H, 0, 1)
+		items = append(items, gin.H{"id": 1, "name": "sample"})
+		c.JSON(200, items)
+	})
 	r.Run(":" + port)
 	{{else}}
 	app := fiber.New()
 	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok", "architecture": "mvp"}) })
-	app.Get("/api/v1/items", func(c *fiber.Ctx) error { return c.JSON([]fiber.Map{{"id": 1, "name": "sample"}}) })
+	app.Get("/api/v1/items", func(c *fiber.Ctx) error {
+		items := make([]fiber.Map, 0, 1)
+		items = append(items, fiber.Map{"id": 1, "name": "sample"})
+		return c.JSON(items)
+	})
 	app.Listen(":" + port)
 	{{end}}
 }

@@ -1,0 +1,13 @@
+import { ItemService } from '../../../core/services/itemService.js';
+import { ItemRepositoryAdapter } from '../../secondary/database/itemRepositoryAdapter.js';
+
+const service = new ItemService(new ItemRepositoryAdapter());
+
+export async function listItems(req, res) {
+  const items = await service.listItems();
+  res.json(items);
+}
+
+export async function listItemsFastify() {
+  return service.listItems();
+}

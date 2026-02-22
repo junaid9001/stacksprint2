@@ -1,13 +1,12 @@
-{{if eq .Framework "django"}}# Django entrypoint is generated via manage.py and config/*.py
+{{if eq .Framework "django"}}# Django API entrypoint is managed by manage.py + config urls.
 {{else}}from fastapi import FastAPI
+from app.delivery.http.item_controller import list_items
 
-app = FastAPI(title='StackSprint')
+app = FastAPI(title='StackSprint Clean')
 
 @app.get('/health')
 def health():
-    return {'status': 'ok', 'architecture': '{{.Architecture}}'}
+    return {'status': 'ok', 'architecture': 'clean'}
 
-@app.get('/api/v1/items')
-def list_items():
-    return [{'id': 1, 'name': 'sample'}]
+app.include_router(list_items)
 {{end}}

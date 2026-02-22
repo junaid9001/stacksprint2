@@ -1,0 +1,9 @@
+export class ItemService {
+  constructor(repository) {
+    this.repository = repository;
+  }
+
+  async listItems() {
+    return this.repository.list();
+  }
+}

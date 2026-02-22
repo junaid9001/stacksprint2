@@ -2,7 +2,7 @@ package repository
 
 import "{{.Module}}/internal/domain"
 
-{{if .UseSQL}}
+{{if and .UseSQL .UseORM}}
 import (
 	"gorm.io/gorm"
 )
@@ -20,6 +20,22 @@ func (r *ItemRepository) List() ([]domain.Item, error) {
 	err := r.db.Find(&out).Error
 	return out, err
 }
+{{else if .UseSQL}}
+import "database/sql"
+
+type ItemRepository struct {
+	db *sql.DB
+}
+
+func NewItemRepository(db *sql.DB) *ItemRepository {
+	return &ItemRepository{db: db}
+}
+
+func (r *ItemRepository) List() ([]domain.Item, error) {
+	out := make([]domain.Item, 0, 1)
+	out = append(out, domain.Item{ID: 1, Name: "sample"})
+	return out, nil
+}
 {{else}}
 type ItemRepository struct{}
 
@@ -28,6 +44,8 @@ func NewItemRepository() *ItemRepository {
 }
 
 func (r *ItemRepository) List() ([]domain.Item, error) {
-	return []domain.Item{{ID: 1, Name: "sample"}}, nil
+	out := make([]domain.Item, 0, 1)
+	out = append(out, domain.Item{ID: 1, Name: "sample"})
+	return out, nil
 }
 {{end}}

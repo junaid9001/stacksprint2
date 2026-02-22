@@ -1,5 +1,7 @@
 package handlers
 
 func ListItems() []map[string]any {
-	return []map[string]any{{"id": 1, "name": "sample"}}
+	items := make([]map[string]any, 0, 1)
+	items = append(items, map[string]any{"id": 1, "name": "sample"})
+	return items
 }

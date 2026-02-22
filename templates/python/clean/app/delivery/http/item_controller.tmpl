@@ -1,0 +1,8 @@
+from fastapi import APIRouter
+from app.usecases.list_items import list_items_usecase
+
+list_items = APIRouter(prefix='/api/v1/items', tags=['items'])
+
+@list_items.get('')
+def list_items_handler():
+    return list_items_usecase()

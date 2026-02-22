@@ -1,0 +1,5 @@
+from app.repository.item_repository import list_items_repo
+
+
+def list_items_usecase() -> list[dict]:
+    return list_items_repo()

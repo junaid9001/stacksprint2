@@ -1,0 +1,16 @@
+{{if eq .Framework "express"}}import express from 'express';
+import { listItems } from './controllers/itemController.js';
+
+const app = express();
+app.use(express.json());
+app.get('/health', (req, res) => res.json({ status: 'ok', architecture: 'clean' }));
+app.get('/api/v1/items', listItems);
+app.listen(process.env.PORT || {{.Port}}, () => console.log('listening'));
+{{else}}import Fastify from 'fastify';
+import { listItemsFastify } from './controllers/itemController.js';
+
+const app = Fastify({ logger: true });
+app.get('/health', async () => ({ status: 'ok', architecture: 'clean' }));
+app.get('/api/v1/items', listItemsFastify);
+app.listen({ port: Number(process.env.PORT || {{.Port}}), host: '0.0.0.0' });
+{{end}}

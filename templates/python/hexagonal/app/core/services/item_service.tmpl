@@ -1,0 +1,8 @@
+from app.core.ports.item_repository_port import ItemRepositoryPort
+
+class ItemService:
+    def __init__(self, repository: ItemRepositoryPort):
+        self.repository = repository
+
+    def list_items(self) -> list[dict]:
+        return self.repository.list_items()

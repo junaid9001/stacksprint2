@@ -1,0 +1,5 @@
+from typing import Protocol
+
+class ItemRepositoryPort(Protocol):
+    def list_items(self) -> list[dict]:
+        ...

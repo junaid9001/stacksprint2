@@ -1,0 +1,10 @@
+import { executeListItems } from '../usecases/listItems.js';
+
+export async function listItems(req, res) {
+  const items = await executeListItems();
+  res.json(items);
+}
+
+export async function listItemsFastify() {
+  return executeListItems();
+}

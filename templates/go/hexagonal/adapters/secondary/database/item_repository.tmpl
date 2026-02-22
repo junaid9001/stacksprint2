@@ -1,6 +1,6 @@
 package database
 
-{{if .UseSQL}}
+{{if and .UseSQL .UseORM}}
 import "gorm.io/gorm"
 
 type ItemRepository struct {
@@ -8,6 +8,16 @@ type ItemRepository struct {
 }
 
 func NewItemRepository(db *gorm.DB) *ItemRepository {
+	return &ItemRepository{db: db}
+}
+{{else if .UseSQL}}
+import "database/sql"
+
+type ItemRepository struct {
+	db *sql.DB
+}
+
+func NewItemRepository(db *sql.DB) *ItemRepository {
 	return &ItemRepository{db: db}
 }
 {{else}}
@@ -19,5 +29,7 @@ func NewItemRepository() *ItemRepository {
 {{end}}
 
 func (r *ItemRepository) List() ([]map[string]any, error) {
-	return []map[string]any{{"id": 1, "name": "sample"}}, nil
+	out := make([]map[string]any, 0, 1)
+	out = append(out, map[string]any{"id": 1, "name": "sample"})
+	return out, nil
 }

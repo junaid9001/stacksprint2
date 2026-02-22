@@ -1,0 +1,10 @@
+from fastapi import APIRouter
+from app.core.services.item_service import ItemService
+from app.adapters.secondary.database.item_repository_adapter import ItemRepositoryAdapter
+
+item_router = APIRouter(prefix='/api/v1/items', tags=['items'])
+service = ItemService(ItemRepositoryAdapter())
+
+@item_router.get('')
+def list_items_handler():
+    return service.list_items()
