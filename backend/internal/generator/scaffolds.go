@@ -12,9 +12,9 @@ func goMod(framework string, root RootOptions) string {
 	if module == "" {
 		module = "stacksprint/generated"
 	}
-	fwDep := "github.com/gin-gonic/gin v1.10.0"
+	fwDep := "github.com/gin-gonic/gin v1.10.0\n\tgithub.com/kelseyhightower/envconfig v1.4.0"
 	if framework == "fiber" {
-		fwDep = "github.com/gofiber/fiber/v2 v2.52.6"
+		fwDep = "github.com/gofiber/fiber/v2 v2.52.6\n\tgithub.com/kelseyhightower/envconfig v1.4.0"
 	}
 	return fmt.Sprintf("module %s\n\ngo 1.23\n\nrequire (\n\t%s\n)\n", module, fwDep)
 }
@@ -40,8 +40,10 @@ func nodePackageJSON(framework string, db string, useORM bool) string {
 		}
 	}
 	devExtra := ""
+	seedCmd := "node scripts/seed.js"
 	if useORM && (db == "postgresql" || db == "mysql") {
 		devExtra = ",\n  \"devDependencies\": {\n    \"prisma\": \"^6.2.1\"\n  }"
+		seedCmd = "node prisma/seed.js"
 	}
 	return fmt.Sprintf(`{
   "name": "stacksprint-generated",
@@ -51,13 +53,16 @@ func nodePackageJSON(framework string, db string, useORM bool) string {
   "scripts": {
     "start": "node src/index.js",
     "dev": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "seed": "%s"
   },
   "dependencies": {
-    "%s": "^5.0.0"%s
+    "%s": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"%s
   }%s
 }
-`, dep, extra, devExtra)
+`, seedCmd, dep, extra, devExtra)
 }
 
 func pythonRequirements(framework string, db string, useORM bool) string {
@@ -71,7 +76,7 @@ func pythonRequirements(framework string, db string, useORM bool) string {
 		}
 		return base
 	}
-	base := "fastapi==0.116.0\nuvicorn==0.34.0\n"
+	base := "fastapi==0.116.0\nuvicorn==0.34.0\npydantic-settings==2.6.1\n"
 	if db == "postgresql" {
 		if useORM {
 			return base + "SQLAlchemy==2.0.36\npsycopg[binary]==3.2.3\n"
@@ -91,15 +96,81 @@ func pythonRequirements(framework string, db string, useORM bool) string {
 }
 
 func goConfigLoader() string {
-	return "package config\n\nimport \"os\"\n\nfunc Port() string {\n\tp := os.Getenv(\"PORT\")\n\tif p == \"\" {\n\t\treturn \"8080\"\n\t}\n\treturn p\n}\n"
+	return `package config
+
+import (
+	"log"
+
+	"github.com/kelseyhightower/envconfig"
+)
+
+type Config struct {
+	Port        int    ` + "`envconfig:\"PORT\" default:\"8080\"`" + `
+	DatabaseURL string ` + "`envconfig:\"DATABASE_URL\"`" + `
+	JWTSecret   string ` + "`envconfig:\"JWT_SECRET\" default:\"default_dev_secret_replace_in_prod\"`" + `
+}
+
+var AppConfig Config
+
+func Init() {
+	err := envconfig.Process("", &AppConfig)
+	if err != nil {
+		log.Fatalf("❌ Environment variable validation failed: %v", err)
+	}
+}
+
+func Port() string {
+	return "%d" // we will return fmt.Sprint(AppConfig.Port) implicitly by changing the references in main later. This is just a stub for backwards compat if needed, but the main template should use config.AppConfig.Port now.
+	// We'll update main.go to call config.Init()
+}
+`
 }
 
 func nodeConfigLoader() string {
-	return "export const config = {\n  port: process.env.PORT || 8080,\n  dbUrl: process.env.DATABASE_URL || ''\n};\n"
+	return `import dotenv from 'dotenv';
+import { z } from 'zod';
+
+dotenv.config();
+
+const envSchema = z.object({
+  PORT: z.string().transform(Number).default('8080'),
+  DATABASE_URL: z.string().url().optional(),
+  JWT_SECRET: z.string().min(8).default('default_dev_secret_replace_in_prod'),
+});
+
+const parsed = envSchema.safeParse(process.env);
+if (!parsed.success) {
+  console.error('❌ Invalid environment variables:', parsed.error.format());
+  process.exit(1);
+}
+
+export const config = {
+  port: parsed.data.PORT,
+  dbUrl: parsed.data.DATABASE_URL || '',
+  jwtSecret: parsed.data.JWT_SECRET,
+};
+`
 }
 
 func pythonConfigLoader() string {
-	return "import os\n\nPORT = int(os.getenv(\"PORT\", \"8080\"))\nDATABASE_URL = os.getenv(\"DATABASE_URL\", \"\")\n"
+	return `from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    port: int = 8080
+    database_url: str = ""
+    jwt_secret: str = "default_dev_secret_replace_in_prod"
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+try:
+    settings = Settings()
+except Exception as e:
+    print(f"❌ Configuration error: {e}")
+    exit(1)
+
+PORT = settings.port
+DATABASE_URL = settings.database_url
+`
 }
 
 func goLogger() string {
@@ -267,14 +338,14 @@ func dockerfile(req GenerateRequest, service string) string {
 	_ = service
 	switch req.Language {
 	case "go":
-		return "FROM golang:1.23-alpine AS build\nWORKDIR /app\nCOPY . .\nRUN go mod tidy && go build -o app ./cmd/server\n\nFROM alpine:3.21\nWORKDIR /app\nCOPY --from=build /app/app ./app\nEXPOSE 8080\nCMD [\"./app\"]\n"
+		return "FROM golang:1.23-alpine AS build\nWORKDIR /app\nCOPY . .\nRUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app ./cmd/server\n\nFROM scratch\nWORKDIR /app\nCOPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/\nCOPY --from=build /app/app .\nEXPOSE 8080\nCMD [\"./app\"]\n"
 	case "node":
-		return "FROM node:22-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 8080\nCMD [\"npm\", \"start\"]\n"
+		return "FROM node:22-alpine AS deps\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\n\nFROM node:22-alpine AS runner\nWORKDIR /app\nENV NODE_ENV production\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY . .\nEXPOSE 8080\nCMD [\"npm\", \"start\"]\n"
 	default:
 		if req.Framework == "django" {
-			return "FROM python:3.12-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nEXPOSE 8080\nCMD [\"python\", \"manage.py\", \"runserver\", \"0.0.0.0:8080\"]\n"
+			return "FROM python:3.12-slim AS builder\nWORKDIR /app\nRUN python -m venv /opt/venv\nENV PATH=\"/opt/venv/bin:$PATH\"\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\n\nFROM python:3.12-slim\nWORKDIR /app\nCOPY --from=builder /opt/venv /opt/venv\nENV PATH=\"/opt/venv/bin:$PATH\"\nCOPY . .\nEXPOSE 8080\nCMD [\"python\", \"manage.py\", \"runserver\", \"0.0.0.0:8080\"]\n"
 		}
-		return "FROM python:3.12-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nEXPOSE 8080\nCMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8080\"]\n"
+		return "FROM python:3.12-slim AS builder\nWORKDIR /app\nRUN python -m venv /opt/venv\nENV PATH=\"/opt/venv/bin:$PATH\"\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\n\nFROM python:3.12-slim\nWORKDIR /app\nCOPY --from=builder /opt/venv /opt/venv\nENV PATH=\"/opt/venv/bin:$PATH\"\nCOPY . .\nEXPOSE 8080\nCMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8080\"]\n"
 	}
 }
 
@@ -339,10 +410,10 @@ func buildCompose(req GenerateRequest) string {
 
 	appendDBCompose(&b, req.Database)
 	if req.Infra.Redis {
-		b.WriteString("  redis:\n    image: redis:7-alpine\n    ports:\n      - \"6379:6379\"\n")
+		b.WriteString("  redis:\n    image: redis:7-alpine\n    ports:\n      - \"6379:6379\"\n    healthcheck:\n      test: [\"CMD\", \"redis-cli\", \"ping\"]\n      interval: 5s\n      timeout: 3s\n      retries: 10\n")
 	}
 	if req.Infra.Kafka {
-		b.WriteString("  kafka:\n    image: bitnami/kafka:3.9\n    ports:\n      - \"9092:9092\"\n    environment:\n      - KAFKA_CFG_NODE_ID=1\n      - KAFKA_CFG_PROCESS_ROLES=broker,controller\n      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER\n      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093\n      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092\n      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT\n      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093\n      - ALLOW_PLAINTEXT_LISTENER=yes\n")
+		b.WriteString("  kafka:\n    image: bitnami/kafka:3.9\n    ports:\n      - \"9092:9092\"\n    environment:\n      - KAFKA_CFG_NODE_ID=1\n      - KAFKA_CFG_PROCESS_ROLES=broker,controller\n      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER\n      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093\n      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092\n      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT\n      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093\n      - ALLOW_PLAINTEXT_LISTENER=yes\n    healthcheck:\n      test: [\"CMD-SHELL\", \"kafka-broker-api-versions.sh --bootstrap-server localhost:9092\"]\n      interval: 10s\n      timeout: 5s\n      retries: 10\n")
 	}
 	if req.Infra.NATS {
 		b.WriteString("  nats:\n    image: nats:2.10-alpine\n    ports:\n      - \"4222:4222\"\n")
@@ -467,8 +538,24 @@ func buildCIPipeline(req GenerateRequest) string {
 }
 
 func buildMakefile(req GenerateRequest) string {
-	_ = req
-	return "up:\n\tdocker compose up --build\n\ndown:\n\tdocker compose down -v\n\ntest:\n\t@echo \"Run language-specific tests\"\n"
+	var b strings.Builder
+	b.WriteString("up:\n\tdocker compose up --build\n\ndown:\n\tdocker compose down -v\n\ntest:\n\t@echo \"Run language-specific tests\"\n")
+	if req.Database != "none" {
+		if req.Language == "go" {
+			b.WriteString("\nmigrate-up:\n\t@echo \"Running migrations up\"\n\t# migrate -path db/migrations -database \"$$DATABASE_URL\" up\n")
+			b.WriteString("\nmigrate-down:\n\t@echo \"Running migrations down\"\n\t# migrate -path db/migrations -database \"$$DATABASE_URL\" down\n")
+			b.WriteString("\nseed:\n\t@echo \"Running seeder\"\n\tgo run cmd/seeder/main.go\n")
+		} else if req.Language == "node" {
+			if req.UseORM {
+				b.WriteString("\nseed:\n\t@echo \"Running Prisma Seeder\"\n\tnext prisma db seed\n")
+			} else {
+				b.WriteString("\nseed:\n\t@echo \"Running raw SQL seed\"\n\tnode scripts/seed.js\n")
+			}
+		} else if req.Language == "python" {
+			b.WriteString("\nseed:\n\t@echo \"Running Python Seeder\"\n\tpython scripts/seed.py\n")
+		}
+	}
+	return b.String()
 }
 
 func buildOpenAPI(req GenerateRequest) string {

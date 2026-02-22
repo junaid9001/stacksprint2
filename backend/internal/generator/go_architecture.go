@@ -28,12 +28,21 @@ func (e *Engine) generateGoMonolith(tree *FileTree, req GenerateRequest) error {
 	if err := e.renderSpecs(tree, specs, data, ""); err != nil {
 		return err
 	}
-	if req.Architecture == "clean" && isEnabled(req.FileToggles.ExampleCRUD) {
+	if isEnabled(req.FileToggles.ExampleCRUD) {
 		for _, model := range resolvedModels(req.Custom.Models) {
-			if err := e.renderGoCleanDynamicModel(tree, data, model); err != nil {
-				return err
+			if req.Architecture == "clean" {
+				if err := e.renderGoCleanDynamicModel(tree, data, model, ""); err != nil {
+					return err
+				}
+			} else {
+				if err := e.renderGoOtherDynamicModel(tree, data, model, req.Architecture, ""); err != nil {
+					return err
+				}
 			}
 		}
+	}
+	if req.Database != "none" {
+		addFile(tree, "cmd/seeder/main.go", renderGoSeederScript(module, req.Custom.Models, req.UseORM))
 	}
 	addFile(tree, "go.mod", goModV2(req.Framework, req.Root, req.Database, req.UseORM, strings.EqualFold(req.ServiceCommunication, "grpc")))
 	if isEnabled(req.FileToggles.Config) {
@@ -159,7 +168,11 @@ func isSQLDB(db string) bool {
 	return db == "postgresql" || db == "mysql"
 }
 
-func (e *Engine) renderGoCleanDynamicModel(tree *FileTree, baseData map[string]any, model DataModel) error {
+func (e *Engine) renderGoCleanDynamicModel(tree *FileTree, baseData map[string]any, model DataModel, root string) error {
+	prefix := root
+	if prefix != "" {
+		prefix += "/"
+	}
 	modelNameLower := strings.ToLower(model.Name)
 	specs := []templateSpec{
 		{Template: "go/clean/internal/domain/dynamic.tmpl", Output: "internal/domain/" + modelNameLower + ".go"},
@@ -200,7 +213,100 @@ func (e *Engine) renderGoCleanDynamicModel(tree *FileTree, baseData map[string]a
 		if err != nil {
 			return err
 		}
-		addFile(tree, spec.Output, body)
+		addFile(tree, prefix+spec.Output, body)
 	}
 	return nil
+}
+
+func (e *Engine) renderGoOtherDynamicModel(tree *FileTree, baseData map[string]any, model DataModel, arch, root string) error {
+	prefix := root
+	if prefix != "" {
+		prefix += "/"
+	}
+	modelNameLower := strings.ToLower(model.Name)
+	var specs []templateSpec
+
+	switch arch {
+	case "hexagonal":
+		specs = []templateSpec{
+			{Template: "go/hexagonal/internal/core/ports/dynamic_port.tmpl", Output: "internal/core/ports/" + modelNameLower + "_port.go"},
+			{Template: "go/hexagonal/internal/core/services/dynamic_service.tmpl", Output: "internal/core/services/" + modelNameLower + "_service.go"},
+			{Template: "go/hexagonal/internal/adapters/primary/http/dynamic_handler.tmpl", Output: "internal/adapters/primary/http/" + modelNameLower + "_handler.go"},
+			{Template: "go/hexagonal/internal/adapters/secondary/database/dynamic_adapter.tmpl", Output: "internal/adapters/secondary/database/" + modelNameLower + "_adapter.go"},
+		}
+	case "modular-monolith":
+		specs = []templateSpec{
+			{Template: "go/modular/internal/modules/dynamic/http.tmpl", Output: "internal/modules/" + modelNameLower + "/http.go"},
+			{Template: "go/modular/internal/modules/dynamic/service.tmpl", Output: "internal/modules/" + modelNameLower + "/service.go"},
+			{Template: "go/modular/internal/modules/dynamic/repository.tmpl", Output: "internal/modules/" + modelNameLower + "/repository.go"},
+		}
+	default: // mvp / microservice
+		specs = []templateSpec{
+			{Template: "go/mvp/internal/handlers/dynamic_handler.tmpl", Output: "internal/handlers/" + modelNameLower + "_handler.go"},
+		}
+	}
+
+	type goTemplateField struct {
+		Name     string
+		Type     string
+		JSONName string
+	}
+	type goTemplateModel struct {
+		Name   string
+		Fields []goTemplateField
+	}
+	templModel := goTemplateModel{Name: model.Name, Fields: make([]goTemplateField, 0, len(model.Fields))}
+	for _, field := range model.Fields {
+		if strings.EqualFold(field.Name, "id") {
+			continue
+		}
+		templModel.Fields = append(templModel.Fields, goTemplateField{
+			Name:     toPascal(field.Name),
+			Type:     goType(field.Type),
+			JSONName: strings.ToLower(field.Name),
+		})
+	}
+
+	for _, spec := range specs {
+		data := make(map[string]any, len(baseData)+1)
+		for k, v := range baseData {
+			data[k] = v
+		}
+		data["Model"] = templModel
+
+		body, err := e.registry.Render(spec.Template, data)
+		// We ignore missing template errors here because we haven't created these dynamic templates yet!
+		// But if they exist, we render them.
+		if err == nil {
+			addFile(tree, prefix+spec.Output, body)
+		}
+	}
+	return nil
+}
+
+func renderGoSeederScript(module string, models []DataModel, useORM bool) string {
+	var b strings.Builder
+	b.WriteString("package main\n\nimport (\n")
+	b.WriteString(fmt.Sprintf("\t\"%s/internal/db\"\n", module))
+	if useORM {
+		b.WriteString(fmt.Sprintf("\t\"%s/internal/models\"\n", module))
+	}
+	b.WriteString("\t\"log\"\n)\n\nfunc main() {\n")
+	b.WriteString("\tconn, err := db.Connect()\n\tif err != nil {\n\t\tlog.Fatalf(\"Failed to connect: %v\", err)\n\t}\n")
+
+	if useORM {
+		b.WriteString("\tlog.Println(\"Seeding database with GORM...\")\n")
+		for _, m := range resolvedModels(models) {
+			b.WriteString(fmt.Sprintf("\n\t// Seed %s\n\tconn.Create(&models.%s{})\n", m.Name, m.Name))
+		}
+	} else {
+		b.WriteString("\tdefer conn.Close()\n\tlog.Println(\"Seeding database with raw SQL...\")\n")
+		for _, m := range resolvedModels(models) {
+			table := strings.ToLower(m.Name) + "s"
+			b.WriteString(fmt.Sprintf("\n\t// Seed %s\n\t_, err = conn.Exec(\"INSERT INTO %s DEFAULT VALUES\")\n", table, table))
+			b.WriteString(fmt.Sprintf("\tif err != nil { log.Printf(\"Error seeding %s: %%v\", err) }\n", table))
+		}
+	}
+	b.WriteString("\tlog.Println(\"Seeding complete.\")\n}\n")
+	return b.String()
 }

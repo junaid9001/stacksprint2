@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	{{if eq .Framework "gin"}}"github.com/gin-gonic/gin"{{else}}"github.com/gofiber/fiber/v2"{{end}}
+	{{if eq .Framework "gin"}}"github.com/gin-gonic/gin"
+	"net/http"{{else}}"github.com/gofiber/fiber/v2"{{end}}
 )
 
 func main() {
@@ -15,10 +21,43 @@ func main() {
 	{{if eq .Framework "gin"}}
 	r := gin.Default()
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "architecture": "hexagonal"}) })
-	r.Run(":" + port)
+
+	srv := &http.Server{Addr: ":" + port, Handler: r}
+	go func() {
+		fmt.Printf("server listening on :%s\n", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("server error: %v\n", err)
+			os.Exit(1)
+		}
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	fmt.Println("graceful shutdown — draining...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		fmt.Printf("forced shutdown: %v\n", err)
+	}
+	fmt.Println("server stopped")
 	{{else}}
 	app := fiber.New()
 	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok", "architecture": "hexagonal"}) })
-	app.Listen(":" + port)
+
+	go func() {
+		fmt.Printf("server listening on :%s\n", port)
+		if err := app.Listen(":" + port); err != nil {
+			fmt.Printf("server error: %v\n", err)
+			os.Exit(1)
+		}
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	fmt.Println("graceful shutdown — draining...")
+	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
+		fmt.Printf("forced shutdown: %v\n", err)
+	}
+	fmt.Println("server stopped")
 	{{end}}
 }

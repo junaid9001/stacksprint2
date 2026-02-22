@@ -1,8 +1,11 @@
 module stacksprint/backend
 
-go 1.23
+go 1.24.0
 
-require github.com/gofiber/fiber/v2 v2.52.6
+require (
+	github.com/gofiber/fiber/v2 v2.52.6
+	golang.org/x/tools v0.42.0
+)
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
@@ -15,5 +18,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/mod v0.33.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
 )

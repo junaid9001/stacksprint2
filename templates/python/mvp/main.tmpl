@@ -1,13 +1,36 @@
 {{if eq .Framework "django"}}# Django entrypoint is generated via manage.py and config/*.py
-{{else}}from fastapi import FastAPI
+{{else}}import logging
+import signal
+from contextlib import asynccontextmanager
 
-app = FastAPI(title='StackSprint')
+import uvicorn
+from fastapi import FastAPI
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("stacksprint")
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Startup and graceful shutdown via FastAPI lifespan."""
+    logger.info("startup complete")
+    yield
+    logger.info("shutdown complete")
+
+
+app = FastAPI(title='StackSprint', lifespan=lifespan)
+
 
 @app.get('/health')
 def health():
     return {'status': 'ok', 'architecture': '{{.Architecture}}'}
 
+
 @app.get('/api/v1/items')
 def list_items():
     return [{'id': 1, 'name': 'sample'}]
+
+
+if __name__ == '__main__':
+    uvicorn.run('app.main:app', host='0.0.0.0', port=int(__import__('os').getenv('PORT', '{{.Port}}')), reload=False)
 {{end}}

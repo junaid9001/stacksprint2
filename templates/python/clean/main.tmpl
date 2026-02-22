@@ -1,12 +1,29 @@
 {{if eq .Framework "django"}}# Django API entrypoint is managed by manage.py + config urls.
-{{else}}from fastapi import FastAPI
-from app.delivery.http.item_controller import list_items
+{{else}}import logging
+from contextlib import asynccontextmanager
 
-app = FastAPI(title='StackSprint Clean')
+import uvicorn
+from fastapi import FastAPI
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("stacksprint")
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    logger.info("startup complete")
+    yield
+    logger.info("shutdown complete")
+
+
+app = FastAPI(title='StackSprint Clean', lifespan=lifespan)
+
 
 @app.get('/health')
 def health():
     return {'status': 'ok', 'architecture': 'clean'}
 
-app.include_router(list_items)
+
+from app.delivery.http.item_controller import router as items_router
+app.include_router(items_router)
 {{end}}

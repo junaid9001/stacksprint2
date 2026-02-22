@@ -2,6 +2,7 @@ package generator
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -27,9 +28,13 @@ func (e *Engine) Generate(_ context.Context, req GenerateRequest) (GenerateRespo
 	if err := e.generateCore(&tree, req); err != nil {
 		return GenerateResponse{}, err
 	}
-	applyCustomizations(&tree, req.Custom)
+	warnings := applyCustomizations(&tree, req.Custom)
 
-	return BuildScripts(req, tree)
+	resp, err := BuildScripts(req, tree)
+	if err == nil && len(warnings) > 0 {
+		resp.Warnings = append(resp.Warnings, warnings...)
+	}
+	return resp, err
 }
 
 func normalize(req GenerateRequest) GenerateRequest {
@@ -46,9 +51,6 @@ func normalize(req GenerateRequest) GenerateRequest {
 	}
 	if req.Root.Mode == "new" && req.Root.Name == "" {
 		req.Root.Name = "stacksprint-generated"
-	}
-	if req.Root.Mode == "new" && !req.Root.GitInit {
-		req.Root.GitInit = true
 	}
 	if req.Architecture == "microservices" && len(req.Services) == 0 {
 		req.Services = []ServiceConfig{{Name: "users", Port: 8081}, {Name: "orders", Port: 8082}}
@@ -140,6 +142,8 @@ func (e *Engine) generateMonolith(tree *FileTree, req GenerateRequest) error {
 		addCRUDRoute(tree, req, "")
 	}
 	addInfraBoilerplate(tree, req, "")
+	addAutopilotBoilerplate(tree, req, "")
+	addDBRetry(tree, req, "")
 	if isEnabled(req.FileToggles.Dockerfile) {
 		addFile(tree, "Dockerfile", dockerfile(req, ""))
 	}
@@ -155,13 +159,39 @@ func (e *Engine) generateMicroservices(tree *FileTree, req GenerateRequest) erro
 			if err := e.generateGoService(tree, req, svcRoot, svc); err != nil {
 				return err
 			}
+			if isEnabled(req.FileToggles.ExampleCRUD) {
+				data := map[string]any{
+					"Framework":    req.Framework,
+					"Architecture": req.Architecture,
+					"Port":         svc.Port,
+					"UseDB":        req.Database != "none",
+					"UseSQL":       isSQLDB(req.Database),
+					"UseORM":       req.UseORM,
+					"DBKind":       req.Database,
+					"Module":       fmt.Sprintf("stacksprint/%s", svc.Name),
+					"Service":      svc.Name,
+				}
+				for _, model := range resolvedModels(req.Custom.Models) {
+					e.renderGoOtherDynamicModel(tree, data, model, req.Architecture, svcRoot)
+				}
+			}
 		case "node":
 			if err := e.generateNodeService(tree, req, svcRoot, svc); err != nil {
 				return err
 			}
+			if isEnabled(req.FileToggles.ExampleCRUD) {
+				for _, model := range resolvedModels(req.Custom.Models) {
+					renderNodeDynamicModel(tree, req, model, req.Architecture, svcRoot)
+				}
+			}
 		case "python":
 			if err := e.generatePythonService(tree, req, svcRoot, svc); err != nil {
 				return err
+			}
+			if isEnabled(req.FileToggles.ExampleCRUD) {
+				for _, model := range resolvedModels(req.Custom.Models) {
+					renderPythonDynamicModel(tree, req, model, req.Architecture, svcRoot)
+				}
 			}
 		}
 
@@ -190,6 +220,8 @@ func (e *Engine) generateMicroservices(tree *FileTree, req GenerateRequest) erro
 		if strings.EqualFold(req.ServiceCommunication, "grpc") {
 			addGRPCBoilerplate(tree, req, svcRoot)
 		}
+		addAutopilotBoilerplate(tree, req, svcRoot)
+		addDBRetry(tree, req, svcRoot)
 	}
 
 	if isEnabled(req.FileToggles.Readme) {
@@ -211,14 +243,15 @@ func addFile(tree *FileTree, p, content string) {
 	}
 }
 
-func applyCustomizations(tree *FileTree, c CustomOptions) {
+func applyCustomizations(tree *FileTree, c CustomOptions) []string {
+	var warnings []string
 	for _, d := range c.AddFolders {
 		tree.Dirs[filepath.ToSlash(d)] = struct{}{}
 	}
 	for _, f := range c.AddFiles {
 		p := filepath.ToSlash(strings.TrimPrefix(f.Path, "./"))
-		if existing, exists := tree.Files[p]; exists {
-			tree.Files[p] = existing + "\n\n// --- CUSTOM INJECTED CODE ---\n\n" + f.Content
+		if _, exists := tree.Files[p]; exists {
+			warnings = append(warnings, "Duplicate custom file path detected and ignored: "+p)
 			continue
 		}
 		addFile(tree, p, f.Content)
@@ -235,6 +268,7 @@ func applyCustomizations(tree *FileTree, c CustomOptions) {
 	for _, f := range c.RemoveFiles {
 		delete(tree.Files, filepath.ToSlash(f))
 	}
+	return warnings
 }
 
 func baseGitignore(lang string) string {
