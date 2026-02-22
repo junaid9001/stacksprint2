@@ -1,0 +1,70 @@
+package repository
+
+import (
+	"context"
+{{ if .UseORM }}
+	"gorm.io/gorm"
+{{ else }}
+	"database/sql"
+{{ end }}
+
+	"{{ .Module }}/internal/domain"
+)
+
+type {{ .Model.Name }}Repository struct {
+{{ if .UseORM }}
+	db *gorm.DB
+{{ else }}
+	db *sql.DB
+{{ end }}
+}
+
+{{ if .UseORM }}
+func New{{ .Model.Name }}Repository(db *gorm.DB) *{{ .Model.Name }}Repository {
+	return &{{ .Model.Name }}Repository{db: db}
+}
+{{ else }}
+func New{{ .Model.Name }}Repository(db *sql.DB) *{{ .Model.Name }}Repository {
+	return &{{ .Model.Name }}Repository{db: db}
+}
+{{ end }}
+
+func (r *{{ .Model.Name }}Repository) Create(ctx context.Context, entity *domain.{{ .Model.Name }}) error {
+{{ if .UseORM }}
+	return r.db.WithContext(ctx).Create(entity).Error
+{{ else }}
+	_ = ctx
+	_ = entity
+	// TODO: implement INSERT using database/sql for generated schema
+	return nil
+{{ end }}
+}
+
+func (r *{{ .Model.Name }}Repository) GetByID(ctx context.Context, id int) (*domain.{{ .Model.Name }}, error) {
+{{ if .UseORM }}
+	out := &domain.{{ .Model.Name }}{}
+	if err := r.db.WithContext(ctx).First(out, id).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+{{ else }}
+	_ = ctx
+	_ = id
+	// TODO: implement SELECT ... WHERE id using database/sql for generated schema
+	return nil, nil
+{{ end }}
+}
+
+func (r *{{ .Model.Name }}Repository) List(ctx context.Context) ([]domain.{{ .Model.Name }}, error) {
+{{ if .UseORM }}
+	out := make([]domain.{{ .Model.Name }}, 0)
+	if err := r.db.WithContext(ctx).Find(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+{{ else }}
+	_ = ctx
+	// TODO: implement SELECT list using database/sql for generated schema
+	return make([]domain.{{ .Model.Name }}, 0), nil
+{{ end }}
+}

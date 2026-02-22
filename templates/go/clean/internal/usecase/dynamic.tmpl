@@ -1,0 +1,33 @@
+package usecase
+
+import (
+	"context"
+
+	"{{ .Module }}/internal/domain"
+)
+
+type {{ .Model.Name }}Repository interface {
+	Create(ctx context.Context, entity *domain.{{ .Model.Name }}) error
+	GetByID(ctx context.Context, id int) (*domain.{{ .Model.Name }}, error)
+	List(ctx context.Context) ([]domain.{{ .Model.Name }}, error)
+}
+
+type {{ .Model.Name }}Usecase struct {
+	repo {{ .Model.Name }}Repository
+}
+
+func New{{ .Model.Name }}Usecase(repo {{ .Model.Name }}Repository) *{{ .Model.Name }}Usecase {
+	return &{{ .Model.Name }}Usecase{repo: repo}
+}
+
+func (u *{{ .Model.Name }}Usecase) Create(ctx context.Context, entity *domain.{{ .Model.Name }}) error {
+	return u.repo.Create(ctx, entity)
+}
+
+func (u *{{ .Model.Name }}Usecase) GetByID(ctx context.Context, id int) (*domain.{{ .Model.Name }}, error) {
+	return u.repo.GetByID(ctx, id)
+}
+
+func (u *{{ .Model.Name }}Usecase) List(ctx context.Context) ([]domain.{{ .Model.Name }}, error) {
+	return u.repo.List(ctx)
+}

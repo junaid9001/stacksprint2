@@ -1,0 +1,28 @@
+package http
+
+import (
+	"context"
+
+	"{{ .Module }}/internal/domain"
+	"{{ .Module }}/internal/usecase"
+)
+
+type {{ .Model.Name }}Handler struct {
+	uc *usecase.{{ .Model.Name }}Usecase
+}
+
+func New{{ .Model.Name }}Handler(uc *usecase.{{ .Model.Name }}Usecase) *{{ .Model.Name }}Handler {
+	return &{{ .Model.Name }}Handler{uc: uc}
+}
+
+func (h *{{ .Model.Name }}Handler) Create(ctx context.Context, entity *domain.{{ .Model.Name }}) error {
+	return h.uc.Create(ctx, entity)
+}
+
+func (h *{{ .Model.Name }}Handler) GetByID(ctx context.Context, id int) (*domain.{{ .Model.Name }}, error) {
+	return h.uc.GetByID(ctx, id)
+}
+
+func (h *{{ .Model.Name }}Handler) List(ctx context.Context) ([]domain.{{ .Model.Name }}, error) {
+	return h.uc.List(ctx)
+}
