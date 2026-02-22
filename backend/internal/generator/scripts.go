@@ -17,6 +17,7 @@ func BuildScripts(req GenerateRequest, tree FileTree) (GenerateResponse, error) 
 		BashScript:       bash,
 		PowerShellScript: pwsh,
 		FilePaths:        collectFilePaths(tree),
+		Warnings:         buildGenerationWarnings(req),
 	}, nil
 }
 
@@ -200,4 +201,23 @@ func collectFilePaths(tree FileTree) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+func buildGenerationWarnings(req GenerateRequest) []string {
+	warnings := make([]string, 0)
+
+	if req.Architecture == "microservices" && req.ServiceCommunication == "none" {
+		warnings = append(warnings, "Microservices selected without service-to-service communication (http/grpc).")
+	}
+	if req.UseORM && (req.Database == "none" || req.Database == "mongodb") {
+		warnings = append(warnings, "ORM toggle is enabled but current database is non-SQL; ORM setting is ignored.")
+	}
+	if req.Infra.Kafka && req.ServiceCommunication == "none" && req.Architecture != "microservices" {
+		warnings = append(warnings, "Kafka enabled for a monolith without explicit service communication; verify topic usage in app flow.")
+	}
+	if req.Framework == "django" && req.Language == "python" && req.UseORM && req.Database != "none" {
+		warnings = append(warnings, "Django uses built-in ORM; SQLAlchemy toggle is not applied for Django mode.")
+	}
+
+	return warnings
 }

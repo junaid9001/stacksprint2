@@ -75,6 +75,7 @@ type GenerateResponse struct {
 	BashScript       string   `json:"bash_script"`
 	PowerShellScript string   `json:"powershell_script"`
 	FilePaths        []string `json:"file_paths"`
+	Warnings         []string `json:"warnings"`
 }
 
 type FileTree struct {
