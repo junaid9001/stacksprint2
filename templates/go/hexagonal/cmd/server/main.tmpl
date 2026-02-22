@@ -1,7 +1,5 @@
 package main
 
-// MVP fallback template: simple flat structure.
-
 import (
 	"os"
 
@@ -10,15 +8,17 @@ import (
 
 func main() {
 	port := os.Getenv("PORT")
-	if port == "" { port = "{{.Port}}" }
+	if port == "" {
+		port = "{{.Port}}"
+	}
 
 	{{if eq .Framework "gin"}}
 	r := gin.Default()
-	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "mode": "mvp"}) })
+	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "architecture": "hexagonal"}) })
 	r.Run(":" + port)
 	{{else}}
 	app := fiber.New()
-	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok", "mode": "mvp"}) })
+	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok", "architecture": "hexagonal"}) })
 	app.Listen(":" + port)
 	{{end}}
 }

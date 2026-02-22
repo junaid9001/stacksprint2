@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Service = { name: string; port: number };
 type ToggleItem = { key: string; label: string };
+type CustomFileEntry = { path: string; content: string };
 
 const infraKeys: ToggleItem[] = [
   { key: 'redis', label: 'Redis' },
@@ -60,13 +61,14 @@ export default function Page() {
   const [rootPath, setRootPath] = useState('.');
   const [moduleName, setModuleName] = useState('github.com/example/my-stacksprint-app');
   const [customFolders, setCustomFolders] = useState('');
-  const [customFiles, setCustomFiles] = useState('');
+  const [customFileEntries, setCustomFileEntries] = useState<CustomFileEntry[]>([{ path: '', content: '' }]);
   const [removeFolders, setRemoveFolders] = useState('');
   const [removeFiles, setRemoveFiles] = useState('');
   const [bashScript, setBashScript] = useState('');
   const [powerShellScript, setPowerShellScript] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const frameworkChoices = useMemo(() => {
     if (language === 'go') return ['gin', 'fiber'];
@@ -78,69 +80,97 @@ export default function Page() {
     return v.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
-  function parseCustomFiles(raw: string): Array<{ path: string; content: string }> {
-    const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
-    return lines
-      .map((line): { path: string; content: string } | null => {
-        const idx = line.indexOf('=');
-        if (idx <= 0) return null;
-        return { path: line.slice(0, idx).trim(), content: line.slice(idx + 1) };
-      })
-      .filter((item): item is { path: string; content: string } => item !== null);
-  }
+  const payload = useMemo(() => ({
+    language,
+    framework,
+    architecture,
+    services: architecture === 'microservices' ? services : [],
+    db,
+    service_communication: serviceCommunication,
+    infra,
+    features,
+    file_toggles: fileToggles,
+    custom: {
+      add_folders: parseCsv(customFolders),
+      add_files: customFileEntries.filter((item) => item.path.trim() !== '').map((item) => ({ path: item.path.trim(), content: item.content })),
+      add_service_names: services.map((s) => s.name),
+      remove_folders: parseCsv(removeFolders),
+      remove_files: parseCsv(removeFiles)
+    },
+    root: {
+      mode: rootMode,
+      name: rootName,
+      path: rootPath,
+      git_init: true,
+      module: moduleName
+    }
+  }), [
+    language,
+    framework,
+    architecture,
+    services,
+    db,
+    serviceCommunication,
+    infra,
+    features,
+    fileToggles,
+    customFolders,
+    customFileEntries,
+    removeFolders,
+    removeFiles,
+    rootMode,
+    rootName,
+    rootPath,
+    moduleName
+  ]);
 
-  async function generate() {
-    setLoading(true);
+  async function fetchScripts(mode: 'manual' | 'preview', signal?: AbortSignal) {
+    if (mode === 'manual') {
+      setLoading(true);
+    } else {
+      setPreviewLoading(true);
+    }
     setError('');
-    setBashScript('');
-    setPowerShellScript('');
-
-    const payload = {
-      language,
-      framework,
-      architecture,
-      services: architecture === 'microservices' ? services : [],
-      db,
-      service_communication: serviceCommunication,
-      infra,
-      features,
-      file_toggles: fileToggles,
-      custom: {
-        add_folders: parseCsv(customFolders),
-        add_files: parseCustomFiles(customFiles),
-        add_service_names: services.map((s) => s.name),
-        remove_folders: parseCsv(removeFolders),
-        remove_files: parseCsv(removeFiles)
-      },
-      root: {
-        mode: rootMode,
-        name: rootName,
-        path: rootPath,
-        git_init: true,
-        module: moduleName
-      }
-    };
 
     try {
       const api = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
       const res = await fetch(`${api}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal
       });
       const body = await res.json();
       if (!res.ok) {
         setError(body.error || 'Generation failed');
-      } else {
-        setBashScript(body.bash_script || '');
-        setPowerShellScript(body.powershell_script || '');
+        return;
       }
+      setBashScript(body.bash_script || '');
+      setPowerShellScript(body.powershell_script || '');
     } catch (e) {
-      setError(String(e));
+      if ((e as Error).name !== 'AbortError') {
+        setError(String(e));
+      }
     } finally {
-      setLoading(false);
+      if (mode === 'manual') {
+        setLoading(false);
+      } else {
+        setPreviewLoading(false);
+      }
     }
   }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetchScripts('preview', controller.signal);
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [payload]);
 
   function download(name: string, content: string) {
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -152,11 +182,26 @@ export default function Page() {
     URL.revokeObjectURL(url);
   }
 
+  function updateCustomFile(index: number, patch: Partial<CustomFileEntry>) {
+    setCustomFileEntries((prev) => prev.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
+  }
+
+  function addCustomFileRow() {
+    setCustomFileEntries((prev) => [...prev, { path: '', content: '' }]);
+  }
+
+  function removeCustomFileRow(index: number) {
+    setCustomFileEntries((prev) => {
+      if (prev.length === 1) return [{ path: '', content: '' }];
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
   return (
     <main className="app-shell">
       <header className="hero">
         <div className="hero-tag">Backend Initialization Engine</div>
-        <h1>StackSprint</h1>
+        <h1>StackSprint V2</h1>
         <p className="subtitle">
           Design production-ready backend architecture and download one-click Bash or PowerShell setup scripts.
         </p>
@@ -164,7 +209,7 @@ export default function Page() {
 
       <div className="layout">
         <section className="panel">
-          <article className="section">
+          <article className="section section-animated">
             <div className="section-head">
               <h2>1. Language and Architecture</h2>
               <span className="hint">Core stack selection</span>
@@ -203,10 +248,10 @@ export default function Page() {
               </select>
             </div>
 
-            {architecture === 'microservices' && (
+            <div className={`microservices-panel ${architecture === 'microservices' ? 'open' : ''}`}>
               <div className="stack">
                 {services.map((s, i) => (
-                  <div className="row" key={`${s.name}-${i}`}>
+                  <div className="row service-row" key={`${s.name}-${i}`}>
                     <input
                       value={s.name}
                       onChange={(e) => setServices(services.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x))}
@@ -229,7 +274,7 @@ export default function Page() {
                 </button>
                 <div className="hint">Keep service count between 2 and 5.</div>
               </div>
-            )}
+            </div>
 
             <div className="field">
               <label>Service communication</label>
@@ -241,7 +286,7 @@ export default function Page() {
             </div>
           </article>
 
-          <article className="section">
+          <article className="section section-animated">
             <div className="section-head">
               <h2>2. Database and Infra</h2>
               <span className="hint">Runtime dependencies</span>
@@ -269,7 +314,7 @@ export default function Page() {
             </div>
           </article>
 
-          <article className="section">
+          <article className="section section-animated">
             <div className="section-head">
               <h2>3. Optional Features</h2>
               <span className="hint">Boilerplate extras</span>
@@ -288,7 +333,7 @@ export default function Page() {
             </div>
           </article>
 
-          <article className="section">
+          <article className="section section-animated">
             <div className="section-head">
               <h2>4. File Toggles</h2>
               <span className="hint">Default generated files</span>
@@ -307,7 +352,7 @@ export default function Page() {
             </div>
           </article>
 
-          <article className="section">
+          <article className="section section-animated">
             <div className="section-head">
               <h2>5. Root Initialization</h2>
               <span className="hint">Target directory setup</span>
@@ -333,7 +378,7 @@ export default function Page() {
             )}
           </article>
 
-          <article className="section">
+          <article className="section section-animated">
             <div className="section-head">
               <h2>6. Custom Structure Builder</h2>
               <span className="hint">Add or remove paths dynamically</span>
@@ -342,9 +387,25 @@ export default function Page() {
               <label>Add folders (comma-separated)</label>
               <input value={customFolders} onChange={(e) => setCustomFolders(e.target.value)} placeholder="internal/payments, scripts/dev" />
             </div>
-            <div className="field">
-              <label>Add files (`path=content` per line)</label>
-              <textarea rows={4} value={customFiles} onChange={(e) => setCustomFiles(e.target.value)} placeholder={'docs/NOTES.md=hello\nconfigs/feature.flag=enabled=true'} />
+            <div className="file-builder">
+              <label>Custom files</label>
+              {customFileEntries.map((entry, idx) => (
+                <div className="file-item" key={`custom-file-${idx}`}>
+                  <input
+                    value={entry.path}
+                    onChange={(e) => updateCustomFile(idx, { path: e.target.value })}
+                    placeholder="File path (e.g. docs/NOTES.md)"
+                  />
+                  <textarea
+                    rows={4}
+                    value={entry.content}
+                    onChange={(e) => updateCustomFile(idx, { content: e.target.value })}
+                    placeholder="File content"
+                  />
+                  <button type="button" className="ghost" onClick={() => removeCustomFileRow(idx)}>Remove File</button>
+                </div>
+              ))}
+              <button type="button" className="ghost" onClick={addCustomFileRow}>Add Another File</button>
             </div>
             <div className="field">
               <label>Remove folders (comma-separated)</label>
@@ -357,7 +418,7 @@ export default function Page() {
           </article>
 
           <div className="actions">
-            <button className="primary" disabled={loading} onClick={generate}>
+            <button className="primary" disabled={loading} onClick={() => fetchScripts('manual')}>
               {loading ? 'Generating...' : 'Generate Scripts'}
             </button>
             {error && <div className="error">{error}</div>}
@@ -365,18 +426,19 @@ export default function Page() {
         </section>
 
         <aside className="panel sticky">
-          <article className="section">
+          <article className="section section-animated">
             <div className="section-head">
               <h2>Generated Output</h2>
               <span className="hint">Download script and run locally</span>
             </div>
             <p className="hint">After running your script, execute `docker compose up --build` in the generated project.</p>
+            <div className="preview-status">{previewLoading ? 'Updating live preview...' : 'Live preview synced'}</div>
             <div className="download-row">
               <button className="primary" disabled={!bashScript} onClick={() => download('stacksprint-init.sh', bashScript)}>Download Bash</button>
               <button className="ghost" disabled={!powerShellScript} onClick={() => download('stacksprint-init.ps1', powerShellScript)}>Download PowerShell</button>
             </div>
             <label>Script Preview</label>
-            <pre>{bashScript || '# bash script will appear here'}</pre>
+            <pre>{bashScript || '# script preview will appear here after configuration is valid'}</pre>
           </article>
         </aside>
       </div>

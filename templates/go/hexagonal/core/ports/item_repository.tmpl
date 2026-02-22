@@ -1,0 +1,5 @@
+package ports
+
+type ItemRepository interface {
+	List() ([]map[string]any, error)
+}

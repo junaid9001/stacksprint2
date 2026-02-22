@@ -1,0 +1,33 @@
+package repository
+
+import "{{.Module}}/internal/domain"
+
+{{if .UseSQL}}
+import (
+	"gorm.io/gorm"
+)
+
+type ItemRepository struct {
+	db *gorm.DB
+}
+
+func NewItemRepository(db *gorm.DB) *ItemRepository {
+	return &ItemRepository{db: db}
+}
+
+func (r *ItemRepository) List() ([]domain.Item, error) {
+	out := make([]domain.Item, 0)
+	err := r.db.Find(&out).Error
+	return out, err
+}
+{{else}}
+type ItemRepository struct{}
+
+func NewItemRepository() *ItemRepository {
+	return &ItemRepository{}
+}
+
+func (r *ItemRepository) List() ([]domain.Item, error) {
+	return []domain.Item{{ID: 1, Name: "sample"}}, nil
+}
+{{end}}

@@ -1,0 +1,11 @@
+package http
+
+import "{{.Module}}/internal/usecase"
+
+type ItemHandler struct {
+	uc *usecase.ItemUsecase
+}
+
+func NewItemHandler(uc *usecase.ItemUsecase) *ItemHandler {
+	return &ItemHandler{uc: uc}
+}

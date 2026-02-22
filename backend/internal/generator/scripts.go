@@ -7,7 +7,10 @@ import (
 	"strings"
 )
 
+const bashHeredocDelimiter = "EOF_STACKSPRINT_GEN_9942"
+
 func BuildScripts(req GenerateRequest, tree FileTree) (GenerateResponse, error) {
+	ensureGitKeepFiles(&tree)
 	bash := buildBash(req, tree)
 	pwsh := buildPowerShell(req, tree)
 	return GenerateResponse{BashScript: bash, PowerShellScript: pwsh}, nil
@@ -43,12 +46,12 @@ func buildBash(req GenerateRequest, tree FileTree) string {
 	files := fileNamesSorted(tree.Files)
 	for _, f := range files {
 		content := tree.Files[f]
-		b.WriteString(fmt.Sprintf("cat > %q <<'EOF'\n", f))
+		b.WriteString(fmt.Sprintf("cat > %q <<'%s'\n", f, bashHeredocDelimiter))
 		b.WriteString(content)
 		if !strings.HasSuffix(content, "\n") {
 			b.WriteString("\n")
 		}
-		b.WriteString("EOF\n\n")
+		b.WriteString(bashHeredocDelimiter + "\n\n")
 	}
 
 	b.WriteString("echo \"StackSprint project generated successfully.\"\n")
@@ -90,6 +93,26 @@ func buildPowerShell(req GenerateRequest, tree FileTree) string {
 	b.WriteString("Write-Host 'StackSprint project generated successfully.'\n")
 	b.WriteString("Write-Host 'Run: docker compose up --build'\n")
 	return b.String()
+}
+
+func ensureGitKeepFiles(tree *FileTree) {
+	for _, d := range dirsSorted(tree.Dirs) {
+		if d == "." || d == "" {
+			continue
+		}
+		hasChildFile := false
+		prefix := d + "/"
+		for file := range tree.Files {
+			if strings.HasPrefix(file, prefix) {
+				hasChildFile = true
+				break
+			}
+		}
+		if !hasChildFile {
+			keep := path.Join(d, ".gitkeep")
+			tree.Files[keep] = ""
+		}
+	}
 }
 
 func rootExpressionBash(req GenerateRequest) string {

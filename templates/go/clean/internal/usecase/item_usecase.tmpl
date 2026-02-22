@@ -1,0 +1,19 @@
+package usecase
+
+import "{{.Module}}/internal/domain"
+
+type ItemRepository interface {
+	List() ([]domain.Item, error)
+}
+
+type ItemUsecase struct {
+	repo ItemRepository
+}
+
+func NewItemUsecase(repo ItemRepository) *ItemUsecase {
+	return &ItemUsecase{repo: repo}
+}
+
+func (u *ItemUsecase) ListItems() ([]domain.Item, error) {
+	return u.repo.List()
+}

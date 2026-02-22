@@ -1,0 +1,15 @@
+package services
+
+import "{{.Module}}/core/ports"
+
+type ItemService struct {
+	repo ports.ItemRepository
+}
+
+func NewItemService(repo ports.ItemRepository) *ItemService {
+	return &ItemService{repo: repo}
+}
+
+func (s *ItemService) ListItems() ([]map[string]any, error) {
+	return s.repo.List()
+}

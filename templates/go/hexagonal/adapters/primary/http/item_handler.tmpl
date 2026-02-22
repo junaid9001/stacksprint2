@@ -1,0 +1,11 @@
+package http
+
+import "{{.Module}}/core/services"
+
+type Handler struct {
+	service *services.ItemService
+}
+
+func NewHandler(service *services.ItemService) *Handler {
+	return &Handler{service: service}
+}
