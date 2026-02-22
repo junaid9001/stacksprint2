@@ -30,19 +30,17 @@ StackSprint is a backend project initialization engine that generates production
   - Bash script
   - Live file tree preview paths
 
-## V2 Improvements
+## V2 Improvements & Recent Upgrades
 
-- True architecture-aware generation for Go, Node.js, and Python
-- ORM toggle (`use_orm`) for SQL stacks:
-  - Go: GORM or `database/sql`
-  - Node.js: Prisma or SQL driver setup
-  - Python: SQLAlchemy (FastAPI) or Django ORM
-- Stronger script generation:
-  - Empty directory preservation with `.gitkeep`
-  - Safer bash heredoc delimiter
-- Live frontend preview with debounce:
-  - Auto-refresh script preview
-  - Project Explorer from backend `file_paths`
+- **Deterministic Generator Engine**: Replaced fragile string replacements with a robust, structured `// stacksprint:` marker-based injection system across all 15 architectures.
+- **Strategy Pattern Pipeline**: The core generation logic is decoupled via the `GeneratorStrategy` interface, dramatically increasing language extensibility and separating concerns. 
+- **Intelligent Frontend UI**: 
+  - Live Complexity Tracking & Analyzer built into the interactive interface.
+  - Granular dynamic toggles for language, framework, database, and infrastructure.
+  - Auto-refreshing Bash script and Project Explorer previews.
+- **Deep Architecture Awareness**: True code generation for MVP, Clean, Hexagonal, Modular Monolithic, and Microservices across Go, Node.js, and Python.
+- **ORM & Database Flexibility**: Full support for SQLAlchemy, Django ORM, GORM, database/sql, Prisma, and native SQL drivers with environment-driven schemas.
+- **Production-Ready Output**: Scaffolds include optional Git configurations, automated `git init`, multi-stage Dockerfiles, Makefile targets, and Docker Compose wiring.
 
 ## Project Structure
 
