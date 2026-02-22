@@ -28,7 +28,6 @@ StackSprint is a backend project initialization engine that generates production
   - Add/remove services
 - Output format:
   - Bash script
-  - PowerShell script
   - Live file tree preview paths
 
 ## V2 Improvements
@@ -85,7 +84,6 @@ Response:
 ```json
 {
   "bash_script": "...",
-  "powershell_script": "...",
   "file_paths": ["..."]
 }
 ```
