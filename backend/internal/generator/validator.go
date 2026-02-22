@@ -29,6 +29,9 @@ func Validate(req GenerateRequest) error {
 	}
 
 	fw := strings.ToLower(strings.TrimSpace(req.Framework))
+	if fw == "" {
+		return fmt.Errorf("framework is required for %s. please specify a valid framework (e.g. express, fastify). defaults are explicitly not supported.", req.Language)
+	}
 	if _, ok := frameworkByLanguage[lang][fw]; !ok {
 		return fmt.Errorf("framework %q is not valid for %s", req.Framework, req.Language)
 	}

@@ -82,14 +82,40 @@ type RootOptions struct {
 	Module  string `json:"module"`
 }
 
+type Warning struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"` // "info" | "warn" | "error"
+	Message  string `json:"message"`
+	Reason   string `json:"reason"`
+}
+
+type Decision struct {
+	Code        string `json:"code"`
+	Description string `json:"description"`
+	TriggeredBy string `json:"triggered_by"`
+}
+
 type GenerateResponse struct {
-	BashScript       string   `json:"bash_script"`
-	PowerShellScript string   `json:"powershell_script"`
-	FilePaths        []string `json:"file_paths"`
-	Warnings         []string `json:"warnings"`
+	BashScript       string           `json:"bash_script"`
+	FilePaths        []string         `json:"file_paths"`
+	Warnings         []Warning        `json:"warnings"`
+	Decisions        []Decision       `json:"decisions"`
+	ComplexityReport ComplexityReport `json:"complexity_report"`
 }
 
 type FileTree struct {
 	Files map[string]string
 	Dirs  map[string]struct{}
+}
+
+// ComplexityReport is advisory metadata about the configuration complexity.
+// It is produced by AnalyzeComplexity and never alters generation behavior.
+type ComplexityReport struct {
+	Score              int      `json:"score"` // 0–100
+	ArchitectureWeight int      `json:"architecture_weight"`
+	InfraWeight        int      `json:"infra_weight"`
+	ServiceWeight      int      `json:"service_weight"`
+	ModelWeight        int      `json:"model_weight"`
+	RiskLevel          string   `json:"risk_level"` // "low" | "moderate" | "high"
+	Notes              []string `json:"notes"`
 }

@@ -11,13 +11,10 @@ const bashHeredocDelimiter = "EOF_STACKSPRINT_GEN_9942"
 
 func BuildScripts(req GenerateRequest, tree FileTree) (GenerateResponse, error) {
 	ensureGitKeepFiles(&tree)
-	bash := buildBash(req, tree)
-	pwsh := buildPowerShell(req, tree)
 	return GenerateResponse{
-		BashScript:       bash,
-		PowerShellScript: pwsh,
-		FilePaths:        collectFilePaths(tree),
-		Warnings:         buildGenerationWarnings(req),
+		BashScript: buildBash(req, tree),
+		FilePaths:  collectFilePaths(tree),
+		Warnings:   buildGenerationWarnings(req),
 	}, nil
 }
 
@@ -64,42 +61,6 @@ func buildBash(req GenerateRequest, tree FileTree) string {
 	return b.String()
 }
 
-func buildPowerShell(req GenerateRequest, tree FileTree) string {
-	var b strings.Builder
-	b.WriteString("$ErrorActionPreference = 'Stop'\n\n")
-	b.WriteString(fmt.Sprintf("$RootDir = %s\n", rootExpressionPS(req)))
-	b.WriteString("New-Item -ItemType Directory -Path $RootDir -Force | Out-Null\n")
-	b.WriteString("Set-Location $RootDir\n\n")
-
-	if strings.ToLower(req.Root.Mode) == "new" {
-		if req.Root.GitInit {
-			b.WriteString("git init\n")
-		}
-		b.WriteString(languageInitPS(req))
-	}
-
-	dirs := dirsSorted(tree.Dirs)
-	for _, d := range dirs {
-		if d == "." || d == "" {
-			continue
-		}
-		b.WriteString(fmt.Sprintf("New-Item -ItemType Directory -Path '%s' -Force | Out-Null\n", strings.ReplaceAll(d, "'", "''")))
-	}
-	if len(dirs) > 0 {
-		b.WriteString("\n")
-	}
-
-	files := fileNamesSorted(tree.Files)
-	for _, f := range files {
-		escaped := strings.ReplaceAll(f, "'", "''")
-		b.WriteString(fmt.Sprintf("@'\n%s\n'@ | Set-Content -NoNewline '%s'\n\n", trimFinalNewline(tree.Files[f]), escaped))
-	}
-
-	b.WriteString("Write-Host 'StackSprint project generated successfully.'\n")
-	b.WriteString("Write-Host 'Run: docker compose up --build'\n")
-	return b.String()
-}
-
 func ensureGitKeepFiles(tree *FileTree) {
 	for _, d := range dirsSorted(tree.Dirs) {
 		if d == "." || d == "" {
@@ -127,43 +88,9 @@ func rootExpressionBash(req GenerateRequest) string {
 	return fmt.Sprintf("%q", req.Root.Name)
 }
 
-func rootExpressionPS(req GenerateRequest) string {
-	if strings.ToLower(req.Root.Mode) == "existing" {
-		return fmt.Sprintf("'%s'", strings.ReplaceAll(req.Root.Path, "'", "''"))
-	}
-	return fmt.Sprintf("'%s'", strings.ReplaceAll(req.Root.Name, "'", "''"))
-}
-
 func languageInitBash(req GenerateRequest) string {
-	lang := strings.ToLower(req.Language)
-	mod := req.Root.Module
-	if mod == "" {
-		mod = path.Base(req.Root.Name)
-	}
-	switch lang {
-	case "go":
-		return fmt.Sprintf("go mod init %q\n", mod)
-	case "node":
-		return "npm init -y\n"
-	default:
-		return ""
-	}
-}
-
-func languageInitPS(req GenerateRequest) string {
-	lang := strings.ToLower(req.Language)
-	mod := req.Root.Module
-	if mod == "" {
-		mod = path.Base(req.Root.Name)
-	}
-	switch lang {
-	case "go":
-		return fmt.Sprintf("go mod init '%s'\n", strings.ReplaceAll(mod, "'", "''"))
-	case "node":
-		return "npm init -y\n"
-	default:
-		return ""
-	}
+	gen := GetGenerator(req.Language)
+	return gen.GetInitCommand(&req)
 }
 
 func dirsSorted(in map[string]struct{}) []string {
@@ -184,10 +111,6 @@ func fileNamesSorted(in map[string]string) []string {
 	return out
 }
 
-func trimFinalNewline(v string) string {
-	return strings.TrimSuffix(v, "\n")
-}
-
 func collectFilePaths(tree FileTree) []string {
 	paths := make([]string, 0, len(tree.Dirs)+len(tree.Files))
 	for d := range tree.Dirs {
@@ -203,21 +126,38 @@ func collectFilePaths(tree FileTree) []string {
 	return paths
 }
 
-func buildGenerationWarnings(req GenerateRequest) []string {
-	warnings := make([]string, 0)
+func buildGenerationWarnings(req GenerateRequest) []Warning {
+	warnings := make([]Warning, 0)
 
 	if req.Architecture == "microservices" && req.ServiceCommunication == "none" {
-		warnings = append(warnings, "Microservices selected without service-to-service communication (http/grpc).")
+		warnings = append(warnings, Warning{
+			Code:     "MICROSERVICES_NO_COMMUNICATION",
+			Severity: "warn",
+			Message:  "Microservices selected without service-to-service communication (http/grpc).",
+			Reason:   "Architecture implies distributed orchestration, but no internal endpoints were bound.",
+		})
 	}
 	if req.UseORM && (req.Database == "none" || req.Database == "mongodb") {
-		warnings = append(warnings, "ORM toggle is enabled but current database is non-SQL; ORM setting is ignored.")
+		warnings = append(warnings, Warning{
+			Code:     "ORM_NON_SQL_DATABASE",
+			Severity: "info",
+			Message:  "ORM toggle is enabled but current database is non-SQL; ORM setting is ignored.",
+			Reason:   req.Database,
+		})
 	}
 	if req.Infra.Kafka && req.ServiceCommunication == "none" && req.Architecture != "microservices" {
-		warnings = append(warnings, "Kafka enabled for a monolith without explicit service communication; verify topic usage in app flow.")
+		warnings = append(warnings, Warning{
+			Code:     "KAFKA_MONOLITH_NO_COMMUNICATION",
+			Severity: "info",
+			Message:  "Kafka enabled for a monolith without explicit service communication; verify topic usage in app flow.",
+			Reason:   "Event brokers usually pair with distributed domains.",
+		})
 	}
-	if req.Framework == "django" && req.Language == "python" && req.UseORM && req.Database != "none" {
-		warnings = append(warnings, "Django uses built-in ORM; SQLAlchemy toggle is not applied for Django mode.")
-	}
+
+	// Delegate language/framework-specific warnings to the generator — keeps
+	// req.Language and req.Framework checks OUT of this shared pipeline file.
+	gen := GetGenerator(req.Language)
+	warnings = append(warnings, gen.GetConfigWarnings(&req)...)
 
 	return warnings
 }

@@ -2,7 +2,6 @@ package generator
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -18,23 +17,30 @@ func NewEngine(registry *TemplateRegistry) *Engine {
 
 func (e *Engine) Generate(_ context.Context, req GenerateRequest) (GenerateResponse, error) {
 	req = NormalizeConfig(req)
-	req, decisions := ApplyRuleEngine(req)
+	req, decisions, ruleWarnings := ApplyRuleEngine(req)
 	if err := ValidateConfig(req); err != nil {
 		return GenerateResponse{}, err
 	}
+
+	// Complexity analysis is advisory-only — runs after validation, before generation.
+	// It does NOT modify req and does NOT block generation.
+	complexityReport := AnalyzeComplexity(req)
 
 	tree, err := GenerateFileTree(req, e)
 	if err != nil {
 		return GenerateResponse{}, err
 	}
 
-	warnings := ApplyMutations(&tree, req.Custom)
+	mutWarnings := ApplyMutations(&tree, req.Custom)
 	resp, err := BuildScripts(req, tree)
 	if err != nil {
 		return GenerateResponse{}, err
 	}
 
-	return BuildMetadata(&resp, warnings, decisions), nil
+	allWarnings := append(ruleWarnings, mutWarnings...)
+	result := BuildMetadata(&resp, allWarnings, decisions)
+	result.ComplexityReport = complexityReport
+	return result, nil
 }
 
 func NormalizeConfig(req GenerateRequest) GenerateRequest {
@@ -55,12 +61,17 @@ func NormalizeConfig(req GenerateRequest) GenerateRequest {
 	return req
 }
 
-func ApplyRuleEngine(req GenerateRequest) (GenerateRequest, []string) {
-	var decisions []string
+func ApplyRuleEngine(req GenerateRequest) (GenerateRequest, []Decision, []Warning) {
+	var decisions []Decision
+	var warnings []Warning
 
 	if req.Architecture == "microservices" && len(req.Services) == 0 {
 		req.Services = []ServiceConfig{{Name: "users", Port: 8081}, {Name: "orders", Port: 8082}}
-		decisions = append(decisions, "Injected default services for microservice architecture.")
+		decisions = append(decisions, Decision{
+			Code:        "DEFAULT_MICROSERVICES_INJECTED",
+			Description: "Injected default services for microservice architecture.",
+			TriggeredBy: "ApplyRuleEngine",
+		})
 	}
 	if req.Architecture == "microservices" && len(req.Custom.AddServiceNames) > 0 {
 		basePort := 8081
@@ -68,14 +79,31 @@ func ApplyRuleEngine(req GenerateRequest) (GenerateRequest, []string) {
 		for i, name := range req.Custom.AddServiceNames {
 			req.Services = append(req.Services, ServiceConfig{Name: name, Port: basePort + i})
 		}
-		decisions = append(decisions, "Mapped dynamic custom services to microservice array.")
+		decisions = append(decisions, Decision{
+			Code:        "DYNAMIC_SERVICES_MAPPED",
+			Description: "Mapped dynamic custom services to microservice array.",
+			TriggeredBy: "ApplyRuleEngine",
+		})
 	}
 	if req.Database == "none" && req.UseORM {
 		req.UseORM = false
-		decisions = append(decisions, "Disabled ORM generation since database was set to none.")
+		decisions = append(decisions, Decision{
+			Code:        "ORM_DISABLED_NO_DB",
+			Description: "Disabled ORM generation since database was set to none.",
+			TriggeredBy: "ApplyRuleEngine",
+		})
 	}
 
-	return req, decisions
+	if req.Architecture == "mvp" && req.Infra.Kafka {
+		warnings = append(warnings, Warning{
+			Code:     "MVP_WITH_KAFKA",
+			Severity: "warn",
+			Message:  "Using a heavy event broker like Kafka within an MVP architecture boundaries is generally anti-pattern.",
+			Reason:   "Kafka is optimized for distributed boundaries. An MVP monolith will suffer operational latency.",
+		})
+	}
+
+	return req, decisions, warnings
 }
 
 func ValidateConfig(req GenerateRequest) error {
@@ -86,188 +114,89 @@ func GenerateFileTree(req GenerateRequest, e *Engine) (FileTree, error) {
 	tree := FileTree{Files: map[string]string{}, Dirs: map[string]struct{}{}}
 	tree.Dirs["."] = struct{}{}
 
-	if req.Architecture == "microservices" {
-		if err := e.generateMicroservices(&tree, req); err != nil {
-			return tree, err
-		}
-	} else {
-		if err := e.generateMonolith(&tree, req); err != nil {
-			return tree, err
-		}
+	ctx := &GenerationContext{
+		FileTree:  &tree,
+		Warnings:  []Warning{},
+		Decisions: []Decision{},
+		Registry:  e.registry,
 	}
 
-	if isEnabled(req.FileToggles.Compose) {
-		addFile(&tree, "docker-compose.yaml", buildCompose(req))
-	}
-	if isEnabled(req.FileToggles.Env) && req.Architecture != "microservices" {
-		addFile(&tree, ".env", buildEnv(req, "", 8080))
-	}
-	if isEnabled(req.FileToggles.Gitignore) {
-		addFile(&tree, ".gitignore", baseGitignore(req.Language))
-	}
-	if isEnabled(req.FileToggles.Readme) {
-		addFile(&tree, "README.md", buildREADME(req))
-	}
+	gen := GetGenerator(req.Language)
 
-	if req.Features.GitHubActions {
-		addFile(&tree, ".github/workflows/ci.yaml", buildCIPipeline(req))
+	if err := gen.GenerateArchitecture(&req, ctx); err != nil {
+		return tree, err
 	}
-	if req.Features.Makefile {
-		addFile(&tree, "Makefile", buildMakefile(req))
+	if err := gen.GenerateModels(&req, ctx); err != nil {
+		return tree, err
 	}
-	if req.Features.Swagger {
-		addFile(&tree, "docs/openapi.yaml", buildOpenAPI(req))
+	if err := gen.GenerateInfra(&req, ctx); err != nil {
+		return tree, err
 	}
-	if req.Database != "none" {
-		addFile(&tree, "migrations/001_initial.sql", sampleMigration(req.Database, req.Custom.Models))
-		addFile(&tree, "db/init/001_init.sql", sampleDBInit(req.Database, req.Custom.Models))
-	}
-	if strings.EqualFold(req.ServiceCommunication, "grpc") {
-		addFile(&tree, "proto/README.md", "# Shared proto definitions\n\nPlace your protobuf contracts here.\n")
-		addFile(&tree, "proto/common.proto", "syntax = \"proto3\";\npackage stacksprint;\n\nservice InternalService {\n  rpc Ping(PingRequest) returns (PingReply);\n}\n\nmessage PingRequest {\n  string source = 1;\n}\n\nmessage PingReply {\n  string message = 1;\n}\n")
-		addGRPCBoilerplate(&tree, req, "")
+	if err := gen.GenerateDevTools(&req, ctx); err != nil {
+		return tree, err
 	}
 
 	return tree, nil
 }
 
-func ApplyMutations(tree *FileTree, custom CustomOptions) []string {
+func ApplyMutations(tree *FileTree, custom CustomOptions) []Warning {
 	return applyCustomizations(tree, custom)
 }
 
-func BuildMetadata(resp *GenerateResponse, warnings, decisions []string) GenerateResponse {
-	if len(warnings) > 0 {
-		resp.Warnings = append(resp.Warnings, warnings...)
+func BuildMetadata(resp *GenerateResponse, warnings []Warning, decisions []Decision) GenerateResponse {
+	uniqueWarnings := make(map[string]Warning)
+	for _, w := range warnings {
+		uniqueWarnings[w.Code] = w
 	}
-	// Note: Engine doesn't have a `.Decisions` struct exposed to HTTP natively.
-	// For now, mapping into Warnings pipeline or logging. (Assuming Warnings slice handles string arrays)
-	if len(decisions) > 0 {
-		resp.Warnings = append(resp.Warnings, decisions...)
+	for _, w := range resp.Warnings {
+		uniqueWarnings[w.Code] = w
 	}
+
+	uniqueDecisions := make(map[string]Decision)
+	for _, d := range decisions {
+		uniqueDecisions[d.Code] = d
+	}
+	for _, d := range resp.Decisions {
+		uniqueDecisions[d.Code] = d
+	}
+
+	resp.Warnings = make([]Warning, 0, len(uniqueWarnings))
+	for _, w := range uniqueWarnings {
+		resp.Warnings = append(resp.Warnings, w)
+	}
+
+	resp.Decisions = make([]Decision, 0, len(uniqueDecisions))
+	for _, d := range uniqueDecisions {
+		resp.Decisions = append(resp.Decisions, d)
+	}
+
+	sortWarnings(resp.Warnings)
+	sortDecisions(resp.Decisions)
+
 	return *resp
 }
 
-func (e *Engine) generateMonolith(tree *FileTree, req GenerateRequest) error {
-	switch req.Language {
-	case "go":
-		if err := e.generateGoMonolith(tree, req); err != nil {
-			return err
-		}
-	case "node":
-		if err := e.generateNodeMonolith(tree, req); err != nil {
-			return err
-		}
-	case "python":
-		if err := e.generatePythonMonolith(tree, req); err != nil {
-			return err
+func sortWarnings(w []Warning) {
+	priority := map[string]int{"error": 3, "warn": 2, "info": 1}
+	for i := 0; i < len(w); i++ {
+		for j := i + 1; j < len(w); j++ {
+			p1 := priority[w[i].Severity]
+			p2 := priority[w[j].Severity]
+			if p1 < p2 || (p1 == p2 && w[i].Code > w[j].Code) {
+				w[i], w[j] = w[j], w[i]
+			}
 		}
 	}
-
-	if req.Database != "none" {
-		addDatabaseBoilerplate(tree, req, "")
-	}
-	if req.Features.JWTAuth {
-		addAuthBoilerplate(tree, req, "")
-	}
-	if isEnabled(req.FileToggles.HealthCheck) || req.Features.Health {
-		addHealthBoilerplate(tree, req, "")
-	}
-	if isEnabled(req.FileToggles.BaseRoute) {
-		addBaseRoute(tree, req, "")
-	}
-	if isEnabled(req.FileToggles.ExampleCRUD) {
-		addCRUDRoute(tree, req, "")
-	}
-	addInfraBoilerplate(tree, req, "")
-	addAutopilotBoilerplate(tree, req, "")
-	addDBRetry(tree, req, "")
-	if isEnabled(req.FileToggles.Dockerfile) {
-		addFile(tree, "Dockerfile", dockerfile(req, ""))
-	}
-	return nil
 }
 
-func (e *Engine) generateMicroservices(tree *FileTree, req GenerateRequest) error {
-	for _, svc := range req.Services {
-		svcRoot := path.Join("services", svc.Name)
-
-		switch req.Language {
-		case "go":
-			if err := e.generateGoService(tree, req, svcRoot, svc); err != nil {
-				return err
-			}
-			if isEnabled(req.FileToggles.ExampleCRUD) {
-				data := map[string]any{
-					"Framework":    req.Framework,
-					"Architecture": req.Architecture,
-					"Port":         svc.Port,
-					"UseDB":        req.Database != "none",
-					"UseSQL":       isSQLDB(req.Database),
-					"UseORM":       req.UseORM,
-					"DBKind":       req.Database,
-					"Module":       fmt.Sprintf("stacksprint/%s", svc.Name),
-					"Service":      svc.Name,
-				}
-				for _, model := range resolvedModels(req.Custom.Models) {
-					e.renderGoOtherDynamicModel(tree, data, model, req.Architecture, svcRoot)
-				}
-			}
-		case "node":
-			if err := e.generateNodeService(tree, req, svcRoot, svc); err != nil {
-				return err
-			}
-			if isEnabled(req.FileToggles.ExampleCRUD) {
-				for _, model := range resolvedModels(req.Custom.Models) {
-					renderNodeDynamicModel(tree, req, model, req.Architecture, svcRoot)
-				}
-			}
-		case "python":
-			if err := e.generatePythonService(tree, req, svcRoot, svc); err != nil {
-				return err
-			}
-			if isEnabled(req.FileToggles.ExampleCRUD) {
-				for _, model := range resolvedModels(req.Custom.Models) {
-					renderPythonDynamicModel(tree, req, model, req.Architecture, svcRoot)
-				}
+func sortDecisions(d []Decision) {
+	for i := 0; i < len(d); i++ {
+		for j := i + 1; j < len(d); j++ {
+			if d[i].Code > d[j].Code {
+				d[i], d[j] = d[j], d[i]
 			}
 		}
-
-		if isEnabled(req.FileToggles.Env) {
-			addFile(tree, path.Join(svcRoot, ".env"), buildEnv(req, svc.Name, svc.Port))
-		}
-		if isEnabled(req.FileToggles.Dockerfile) {
-			addFile(tree, path.Join(svcRoot, "Dockerfile"), dockerfile(req, svc.Name))
-		}
-		if req.Database != "none" {
-			addDatabaseBoilerplate(tree, req, svcRoot)
-		}
-		if req.Features.JWTAuth {
-			addAuthBoilerplate(tree, req, svcRoot)
-		}
-		if isEnabled(req.FileToggles.HealthCheck) || req.Features.Health {
-			addHealthBoilerplate(tree, req, svcRoot)
-		}
-		if isEnabled(req.FileToggles.BaseRoute) {
-			addBaseRoute(tree, req, svcRoot)
-		}
-		if isEnabled(req.FileToggles.ExampleCRUD) {
-			addCRUDRoute(tree, req, svcRoot)
-		}
-		addInfraBoilerplate(tree, req, svcRoot)
-		if strings.EqualFold(req.ServiceCommunication, "grpc") {
-			addGRPCBoilerplate(tree, req, svcRoot)
-		}
-		addAutopilotBoilerplate(tree, req, svcRoot)
-		addDBRetry(tree, req, svcRoot)
 	}
-
-	if isEnabled(req.FileToggles.Readme) {
-		addFile(tree, "README.md", buildREADME(req))
-	}
-	if isEnabled(req.FileToggles.Gitignore) {
-		addFile(tree, ".gitignore", baseGitignore(req.Language))
-	}
-	return nil
 }
 
 func addFile(tree *FileTree, p, content string) {
@@ -280,15 +209,20 @@ func addFile(tree *FileTree, p, content string) {
 	}
 }
 
-func applyCustomizations(tree *FileTree, c CustomOptions) []string {
-	var warnings []string
+func applyCustomizations(tree *FileTree, c CustomOptions) []Warning {
+	var warnings []Warning
 	for _, d := range c.AddFolders {
 		tree.Dirs[filepath.ToSlash(d)] = struct{}{}
 	}
 	for _, f := range c.AddFiles {
 		p := filepath.ToSlash(strings.TrimPrefix(f.Path, "./"))
 		if _, exists := tree.Files[p]; exists {
-			warnings = append(warnings, "Duplicate custom file path detected and ignored: "+p)
+			warnings = append(warnings, Warning{
+				Code:     "DUPLICATE_CUSTOM_FILE",
+				Severity: "warn",
+				Message:  "Attempted to inject duplicate custom file payload.",
+				Reason:   p,
+			})
 			continue
 		}
 		addFile(tree, p, f.Content)
@@ -306,16 +240,4 @@ func applyCustomizations(tree *FileTree, c CustomOptions) []string {
 		delete(tree.Files, filepath.ToSlash(f))
 	}
 	return warnings
-}
-
-func baseGitignore(lang string) string {
-	base := "# StackSprint\n.env\n*.log\n.DS_Store\n"
-	switch lang {
-	case "go":
-		return base + "bin/\ncoverage.out\n"
-	case "node":
-		return base + "node_modules/\n"
-	default:
-		return base + "__pycache__/\n.venv/\n"
-	}
 }
