@@ -1,10 +1,13 @@
 {{if eq .Framework "express"}}import express from 'express';
 import process from 'node:process';
+// stacksprint:imports
 
 const app = express();
 app.use(express.json());
 app.get('/health', (req, res) => res.json({ status: 'ok', architecture: '{{.Architecture}}' }));
 app.get('/api/v1/items', (req, res) => res.json([{ id: 1, name: 'sample' }]));
+
+// stacksprint:routes
 
 const server = app.listen(process.env.PORT || {{.Port}}, () =>
   console.log(`[{{.Service}}] listening on :${process.env.PORT || {{.Port}}}`)
@@ -19,6 +22,7 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 {{else}}import Fastify from 'fastify';
 import process from 'node:process';
+// stacksprint:imports
 
 const app = Fastify({ logger: true });
 app.get('/health', async () => ({ status: 'ok', architecture: '{{.Architecture}}' }));
@@ -30,6 +34,8 @@ async function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// stacksprint:routes
 
 await app.listen({ port: Number(process.env.PORT || {{.Port}}), host: '0.0.0.0' });
 {{end}}
