@@ -10,6 +10,7 @@ import (
 
 	{{if eq .Framework "gin"}}"github.com/gin-gonic/gin"
 	"net/http"{{else}}"github.com/gofiber/fiber/v2"{{end}}
+	// stacksprint:imports
 )
 
 func main() {
@@ -21,6 +22,8 @@ func main() {
 	{{if eq .Framework "gin"}}
 	r := gin.Default()
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "architecture": "hexagonal"}) })
+
+	// stacksprint:routes
 
 	srv := &http.Server{Addr: ":" + port, Handler: r}
 	go func() {
@@ -43,6 +46,8 @@ func main() {
 	{{else}}
 	app := fiber.New()
 	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok", "architecture": "hexagonal"}) })
+
+	// stacksprint:routes
 
 	go func() {
 		fmt.Printf("server listening on :%s\n", port)
